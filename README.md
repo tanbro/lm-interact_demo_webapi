@@ -14,7 +14,7 @@
 pip install -r requirements.txt
 ```
 
-如果使用 [conda][]，可以查看 `requirements.txt` 中记录的所需软件包，然后使用 [conda][] 安装。
+如果使用 [Conda][] 环境，可以查看 `requirements.txt` 中记录的所需软件包，然后使用 [conda][] 命令安装。
 
 ## 使用
 
@@ -40,11 +40,29 @@ python -m chardemo \
 >
 > 这个 Web 服务程序只会加载一个 `interact` 进程。也就是说，同一时间是能存在一个会话。
 
+#### 获取当前会话 ID
+
+获取服务器上当前正在运行的会话（`interact` 进程）的ID
+
+- URL: `//{{SERVER_ADDR}}/interact`
+
+- Method: `GET`
+
+- Response:
+
+   ```js
+   {
+       "id": 34234,  // 会话 ID
+   }
+   ```
+
+   如果没有任何会话，响应码为 `404 Not Found`
+
 #### 重置会话
 
-服务重新释放-运行 `interact` 程序
+服务重新释放-运行 `interact` 进程
 
-- URL: `http://{{SERVER_ADDR}}/interact/reset`
+- URL: `//{{SERVER_ADDR}}/interact/reset`
 
 - Method: `POST`
 
@@ -59,9 +77,9 @@ python -m chardemo \
 
 #### 消息输入
 
-将消息发送到 `interact` 程序，并回复
+将消息发送到 `interact` 程序，并返回机器回复的内容
 
-- URL: `http://{{SERVER_ADDR}}/interact/<id:int>/input`
+- URL: `//{{SERVER_ADDR}}/interact/<id:int>/input`
   - Args:
     - `id`: 会话 ID
 

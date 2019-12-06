@@ -2,10 +2,9 @@ import asyncio
 import os
 import shlex
 
-from sanic import Sanic
+from sanic import Sanic, response
 from sanic.exceptions import abort
 from sanic.log import logger
-from sanic.response import json
 from sanic.views import HTTPMethodView
 
 from ..app import app
@@ -20,12 +19,21 @@ class Index(HTTPMethodView):
 
     def get(self, request):
         if proc:
-            return json({'id': proc.pid})
-        return json({'id': None})
+            return response.json({'id': proc.pid})
+        return response.json({'id': None})
 
 
 class Reset(HTTPMethodView):
+    async def get(self, request):
+        return await self.reset(request)
+
     async def post(self, request):
+        return await self.reset(request)
+
+    def options(self, request):
+        return response.raw(b'')
+
+    async def reset(self, request):
         global proc
 
         program = app.config.interact_cmd
@@ -36,18 +44,7 @@ class Reset(HTTPMethodView):
             abort(409)
         async with lock:
             # 首先关闭
-            if proc:
-                logger.info('terminate: %s', proc)
-                try:
-                    proc.terminate()
-                except ProcessLookupError as e:
-                    logger.error(
-                        'ProcessLookupError when terminating %s: %s', proc, e)
-                else:
-                    logger.info('wait: %s', proc)
-                    await proc.wait()
-                    logger.info('terminated: %s', proc)
-                proc = None
+            await terminate_proc()
 
             # 然后新建
             logger.info(
@@ -68,24 +65,29 @@ class Reset(HTTPMethodView):
             )
 
             # 等待启动
-            personality = ''
-            reader_name = 'STDERR'
-            reader = proc.stderr
             while True:
-                line = await reader.readline()
-                line = line.decode().strip()
-                logger.info('%s %s: %s', proc, reader_name, line)
-                if line.startswith(PERSONALITY_PREFIX):
-                    personality = line[len(PERSONALITY_PREFIX):].strip().lstrip(
-                        '▁').lstrip()
-                    break
-            return json(dict(
+                # stdout stderr 同时读取
+                try:
+                    outputs = await readline_from_stdout_or_stderr(proc.stdout, proc.stderr, 1)
+                except asyncio.TimeoutError:
+                    continue
+                for name, line in outputs:
+                    logger.info('%s %s: %s', proc, name, line)
+                    # 是否满足启动时候的输出字符串判断？
+                    if line.startswith(PERSONALITY_PREFIX):
+                        personality = line[len(PERSONALITY_PREFIX):].strip()
+                        personality = personality.lstrip('▁').lstrip()
+                        break
+            return response.json(dict(
                 id=proc.pid,
                 personality=personality,
             ))
 
 
 class Input(HTTPMethodView):
+    def options(self, request, id_):
+        return response.raw(b'')
+
     async def post(self, request, id_):
         if lock.locked():
             abort(409)
@@ -101,21 +103,63 @@ class Input(HTTPMethodView):
             data = (msg.strip() + os.linesep).encode()
             proc.stdin.write(data)
             await proc.stdin.drain()
-            # 读取 interact 进程 的 stdout 输出
-            data = await proc.stdout.readline()
-            msg = data.decode().strip()
-            logger.info('output: %s', msg)
-            msg = msg.lstrip('>').lstrip().lstrip('▁').lstrip()
-            # 尝试读取 interact 进程 的 stderr 输出，一直尝试读取，直到超时
+            # 读取 interact 进程 的 stdout/stderr 输出
+            msg = ''
             while True:
                 try:
-                    data = await asyncio.wait_for(proc.stderr.readline(), timeout=1)
+                    outputs = await readline_from_stdout_or_stderr(proc.stdout, proc.stderr, 1)
                 except asyncio.TimeoutError:
-                    break
-                else:
-                    txt = data.decode().strip()
-                    logger.info('%s STDERR: %s', proc, txt)
-            # 返回
-            return json(dict(
+                    continue
+                for name, line in outputs:
+                    logger.info('%s %s: %s', proc, name, line)
+                    if name.upper() == 'STDOUT':
+                        # 得到了返回消息
+                        line = line.lstrip('>').lstrip().lstrip('▁').lstrip()
+                        msg += line
+                        break
+            return response.json(dict(
                 msg=msg
             ))
+
+async def terminate_proc():
+    global proc
+    if proc:
+        logger.info('terminate: %s', proc)
+        try:
+            proc.terminate()
+        except ProcessLookupError as e:
+            proc = None
+            logger.error(
+                'ProcessLookupError when terminating %s: %s', proc, e)
+        else:
+            logger.info('terminate %s: waiting...', proc)
+            await proc.wait()
+            logger.info('terminate %s: ok. returncode=%s', proc, proc.returncode)
+            proc = None
+
+
+async def readline_from_stdout_or_stderr(stdout_stream, stderr_stream, timeout=None):
+
+    async def readline(name, stream):
+        line = await stream.readline()
+        return name, line
+
+    result = []
+
+    aws = {
+        asyncio.create_task(readline(*args))
+        for args in zip(('STDOUT', 'STDERR'), (stdout_stream, stderr_stream))
+    }
+
+    done, pending = await asyncio.wait(aws, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+    for task in done:
+        name, data = task.result()
+        if data == b'':
+            logger.error('EOF on %s. %s was terminated, return code: %s', name, proc, proc.returncode)
+            await terminate_proc()
+            abort(500)
+        result.append((name, data.decode().strip()))
+    for task in pending:
+        task.cancel()
+
+    return result
