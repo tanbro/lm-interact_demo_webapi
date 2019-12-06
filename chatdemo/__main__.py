@@ -7,7 +7,6 @@ import os
 import sys
 
 from .app import app
-from .route import setup_routings
 
 
 def parse_args():
@@ -20,8 +19,11 @@ def parse_args():
                        help='HTTP 服务地址 (default=%(default)s)')
     group.add_argument('--http-port', '-p', type=int, default=8888,
                        help='HTTP 服务端口 (default=%(default)s)')
+    group.add_argument('--allow-origin', type=str, default='*',
+                       help='Access-Control-Allow-Origin 响应头 (default=%(default)s)')
     # interact
-    group = parser.add_argument_group('transformer-learning-conv-ai 交互演示命令行执行程序的相关运行参数')
+    group = parser.add_argument_group(
+        'transformer-learning-conv-ai 交互演示命令行执行程序的相关运行参数')
     group.add_argument("--interact-cmd", type=str, default=sys.executable,
                        help="交互对话程序的启动命令. (default=%(default)s)")
     group.add_argument("--interact-args", type=str, default='interact.py',
@@ -34,7 +36,8 @@ def parse_args():
 
 def main(args: argparse.Namespace):
     app.config.update(vars(args))
-    setup_routings()
+    from . import middlewares
+    from . import routes
     app.run(debug=args.debug, host=args.http_host, port=args.http_port)
 
 

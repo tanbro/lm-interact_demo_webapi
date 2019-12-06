@@ -18,12 +18,10 @@ lock = asyncio.Lock()
 
 class Index(HTTPMethodView):
 
-    def get(self, request, id_):
-        if not proc:
-            abort(404)
-        if proc.pid != id_:
-            abort(404)
-        return json({'id': proc.pid})
+    def get(self, request):
+        if proc:
+            return json({'id': proc.pid})
+        return json({'id': None})
 
 
 class Reset(HTTPMethodView):
@@ -43,7 +41,8 @@ class Reset(HTTPMethodView):
                 try:
                     proc.terminate()
                 except ProcessLookupError as e:
-                    logger.error('ProcessLookupError when terminating %s: %s', proc, e)
+                    logger.error(
+                        'ProcessLookupError when terminating %s: %s', proc, e)
                 else:
                     logger.info('wait: %s', proc)
                     await proc.wait()
@@ -77,7 +76,8 @@ class Reset(HTTPMethodView):
                 line = line.decode().strip()
                 logger.info('%s %s: %s', proc, reader_name, line)
                 if line.startswith(PERSONALITY_PREFIX):
-                    personality = line[len(PERSONALITY_PREFIX):].strip().lstrip('▁').lstrip()
+                    personality = line[len(PERSONALITY_PREFIX):].strip().lstrip(
+                        '▁').lstrip()
                     break
             return json(dict(
                 id=proc.pid,
