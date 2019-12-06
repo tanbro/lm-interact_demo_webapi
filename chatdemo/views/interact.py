@@ -98,7 +98,7 @@ class Input(HTTPMethodView):
             msg = request.json['msg'].strip()
             logger.info('intput: %s', msg)
             # 传到 interact 进程
-            data = (msg.strip + os.linesep).encode()
+            data = (msg.strip() + os.linesep).encode()
             proc.stdin.write(data)
             await proc.stdin.drain()
             # 读取 interact 进程 的 stdout 输出
