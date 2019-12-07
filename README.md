@@ -39,10 +39,11 @@ python -m chardemo \
 > ⚠ **注意**:
 >
 > 这个 Web 服务程序只会加载一个 `interact` 进程。也就是说，同一时间是能存在一个会话。
+> 返回的会话列表最多只有一个元素。
 
-#### 获取当前会话 ID
+#### 获取会话 ID 的列表
 
-获取服务器上当前正在运行的会话（`interact` 进程）的ID
+获取服务器上当前正在运行的会话（`interact` 进程）的 ID 的列表
 
 - URL: `//{{SERVER_ADDR}}/interact`
 
@@ -56,7 +57,36 @@ python -m chardemo \
    }
    ```
 
-   如果没有任何会话，响应码为 `404 Not Found`
+#### 获取会话信息
+
+获取服务器上当前正在运行的会话（`interact` 进程）的 ID 的列表
+
+- URL: `//{{SERVER_ADDR}}/interact/<id: int>`
+
+- Method: `GET`
+
+- Response:
+
+   ```js
+   {
+        "id": 31784,
+        "personality": "我是一名HR。",
+        "history": [
+            {
+                "dir": "input",
+                "msg": "你好，很高兴认识你！",
+                "time": "2019-12-07T10:07:33.698323"
+            },
+            {
+                "dir": "output",
+                "msg": "祝贺你,在这里找到工作。希望可以帮助到你。",
+                "time": "2019-12-07T10:07:34.741251"
+            }
+        ]
+    }
+   ```
+
+   如果没有会话 ID 不存在，响应码为 `404 Not Found`
 
 #### 重置会话
 

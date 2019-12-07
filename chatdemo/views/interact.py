@@ -1,6 +1,7 @@
 import asyncio
 import os
 import shlex
+from datetime import datetime
 
 from sanic import Sanic, response
 from sanic.exceptions import abort
@@ -9,32 +10,48 @@ from sanic.views import HTTPMethodView
 
 from ..app import app
 
-PERSONALITY_PREFIX = 'INFO:interact.py:Selected personality:'
+PERSONALITY_TEXT = 'Selected personality:'
 
 proc: asyncio.subprocess.Process = None
 lock = asyncio.Lock()
+proc_info = {}
 
 
-class Index(HTTPMethodView):
+class List(HTTPMethodView):
 
     def get(self, request):
         if proc:
-            return response.json({'id': proc.pid})
-        return response.json({'id': None})
+            return response.json([proc.pid])
+        return response.json([])
+
+
+class Detail(HTTPMethodView):
+
+    def get(self, request, id_):
+        if not proc:
+            abort(404)
+        if id_ != proc.pid:
+            abort(404)
+        return response.json({
+            'id': id_,
+            'personality': proc_info['personality'],
+            'history': proc_info['history'],
+        })
 
 
 class Reset(HTTPMethodView):
-    async def get(self, request):
-        return await self.reset(request)
-
-    async def post(self, request):
-        return await self.reset(request)
 
     def options(self, request):
         return response.raw(b'')
 
-    async def reset(self, request):
-        global proc
+    async def get(self, request):
+        return await self.perform(request)
+
+    async def post(self, request):
+        return await self.perform(request)
+
+    async def perform(self, request):
+        global proc, proc_info
 
         program = app.config.interact_cmd
         args = shlex.split(app.config.interact_args)
@@ -59,13 +76,19 @@ class Reset(HTTPMethodView):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd
             )
+            proc_info = {
+                'personality': '',
+                'history': [],
+            }
             logger.info(
                 'subprocess created: %s',
                 proc
             )
 
             # 等待启动
-            while True:
+            logger.info('等待 %s 启动 ..', proc)
+            personality = ''
+            while not personality:
                 # stdout stderr 同时读取
                 try:
                     outputs = await readline_from_stdout_or_stderr(proc.stdout, proc.stderr, 1)
@@ -74,10 +97,14 @@ class Reset(HTTPMethodView):
                 for name, line in outputs:
                     logger.info('%s %s: %s', proc, name, line)
                     # 是否满足启动时候的输出字符串判断？
-                    if line.startswith(PERSONALITY_PREFIX):
-                        personality = line[len(PERSONALITY_PREFIX):].strip()
-                        personality = personality.lstrip('▁').lstrip()
+                    pos = line.find(PERSONALITY_TEXT)
+                    if pos >= 0:
+                        personality = line[pos + len(PERSONALITY_TEXT):]
+                        personality = personality.strip().lstrip('▁').lstrip()
+                        logger.info('%s 启动成功. personality: %s',
+                                    proc, personality)
                         break
+            proc_info['personality'] = personality
             return response.json(dict(
                 id=proc.pid,
                 personality=personality,
@@ -99,13 +126,18 @@ class Input(HTTPMethodView):
             # 用户输入
             msg = request.json['msg'].strip()
             logger.info('intput: %s', msg)
+            proc_info['history'].append({
+                'dir': 'input',
+                'msg': msg,
+                'time': datetime.now().isoformat(),
+            })
             # 传到 interact 进程
             data = (msg.strip() + os.linesep).encode()
             proc.stdin.write(data)
             await proc.stdin.drain()
             # 读取 interact 进程 的 stdout/stderr 输出
             msg = ''
-            while True:
+            while not msg:
                 try:
                     outputs = await readline_from_stdout_or_stderr(proc.stdout, proc.stderr, 1)
                 except asyncio.TimeoutError:
@@ -117,9 +149,15 @@ class Input(HTTPMethodView):
                         line = line.lstrip('>').lstrip().lstrip('▁').lstrip()
                         msg += line
                         break
+            proc_info['history'].append({
+                'dir': 'output',
+                'msg': msg,
+                'time': datetime.now().isoformat(),
+            })
             return response.json(dict(
                 msg=msg
             ))
+
 
 async def terminate_proc():
     global proc
@@ -134,8 +172,10 @@ async def terminate_proc():
         else:
             logger.info('terminate %s: waiting...', proc)
             await proc.wait()
-            logger.info('terminate %s: ok. returncode=%s', proc, proc.returncode)
+            logger.info('terminate %s: ok. returncode=%s',
+                        proc, proc.returncode)
             proc = None
+            proc_info = {}
 
 
 async def readline_from_stdout_or_stderr(stdout_stream, stderr_stream, timeout=None):
@@ -152,14 +192,17 @@ async def readline_from_stdout_or_stderr(stdout_stream, stderr_stream, timeout=N
     }
 
     done, pending = await asyncio.wait(aws, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+
+    for task in pending:
+        task.cancel()
+
     for task in done:
         name, data = task.result()
         if data == b'':
-            logger.error('EOF on %s. %s was terminated, return code: %s', name, proc, proc.returncode)
+            logger.error(
+                'EOF on %s. %s was terminated, return code: %s', name, proc, proc.returncode)
             await terminate_proc()
             abort(500)
         result.append((name, data.decode().strip()))
-    for task in pending:
-        task.cancel()
 
     return result

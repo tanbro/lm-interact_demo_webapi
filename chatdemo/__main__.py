@@ -19,7 +19,7 @@ def parse_args():
                        help='HTTP 服务地址 (default=%(default)s)')
     group.add_argument('--http-port', '-p', type=int, default=8888,
                        help='HTTP 服务端口 (default=%(default)s)')
-    group.add_argument('--allow-origin', type=str, default='*',
+    group.add_argument('--allow-origin', type=str,
                        help='Access-Control-Allow-Origin 响应头 (default=%(default)s)')
     # interact
     group = parser.add_argument_group(
