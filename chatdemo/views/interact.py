@@ -25,7 +25,10 @@ class Index(HTTPMethodView):
     def get(self, request, id_=None):
         if id_ is None:
             if proc:
-                return response.json([proc.pid])
+                return response.json([{
+                    'id': proc.pid,
+                    'personality': proc_info.get('personality')
+                }])
             return response.json([])
         #
         if not proc:
@@ -45,8 +48,33 @@ class Index(HTTPMethodView):
         args = shlex.split(app.config.interact_args)
         cwd = app.config.interact_pwd
 
+        async def stream_fn(res):
+            global proc_info
+            personality = ''
+            while not personality:
+                # stdout stderr 同时读取
+                try:
+                    outputs = await readline_from_stdout_or_stderr(proc.stdout, proc.stderr, 1)
+                except asyncio.TimeoutError:
+                    continue
+                for name, line in outputs:
+                    logger.info('%s %s: %s', proc, name, line)
+                    await res.write(line + os.linesep)
+                    # 是否满足启动时候的输出字符串判断？
+                    pos = line.find(PERSONALITY_TEXT)
+                    if pos >= 0:
+                        personality = line[pos + len(PERSONALITY_TEXT):]
+                        personality = personality.strip().lstrip('▁').lstrip()
+                        logger.info(
+                            '%s 启动成功. personality: %s',
+                            proc, personality
+                        )
+                        break
+            proc_info['personality'] = personality
+
         if lock.locked():
             return response.text('', 409)
+
         async with lock:
             # 首先关闭
             await terminate_proc()
@@ -64,41 +92,15 @@ class Index(HTTPMethodView):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd
             )
+            logger.info('subprocess created: %s', proc)
             proc_info = {
                 'personality': '',
                 'history': [],
             }
-            logger.info(
-                'subprocess created: %s',
-                proc
-            )
-
             # 等待启动
-            logger.info('等待 %s 启动 ..', proc)
-            personality = ''
-            while not personality:
-                # stdout stderr 同时读取
-                try:
-                    outputs = await readline_from_stdout_or_stderr(proc.stdout, proc.stderr, 1)
-                except asyncio.TimeoutError:
-                    continue
-                for name, line in outputs:
-                    logger.info('%s %s: %s', proc, name, line)
-                    # 是否满足启动时候的输出字符串判断？
-                    pos = line.find(PERSONALITY_TEXT)
-                    if pos >= 0:
-                        personality = line[pos + len(PERSONALITY_TEXT):]
-                        personality = personality.strip().lstrip('▁').lstrip()
-                        logger.info(
-                            '%s 启动成功. personality: %s',
-                            proc, personality
-                        )
-                        break
-            proc_info['personality'] = personality
-            return response.json(dict(
-                id=proc.pid,
-                personality=personality,
-            ))
+            logger.info('持续读取 %s 进程输出，等待其启动完毕 ..', proc)
+            # Streaming 读取 stdout, stderr ...
+            return response.stream(stream_fn, content_type='text/plain', headers={'X-INTERACT-ID': proc.pid})
 
 
 class Input(HTTPMethodView):

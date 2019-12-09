@@ -27,7 +27,7 @@ cd /path/of/the/project
 python -m chardemo \
     --interact-cmd "/home/kangzh/miniconda3/envs/python3.6/bin/python" \
     --interact-pwd "/home/kangzh/transfer-learning-conv-ai" \
-    --interact-args "interact.py --model_type gpt2_cn --model_checkpoint ./model_checkpoint_117 --dataset_cache ./dataset_cache_GPT2Tokenizer_cn/cache  --min_length 125 --max_length 1000  --temperature 0.6 --top_p 0.9"
+    --interact-args "interact_v3.py --model_type gpt2_bpe_cn --model_checkpoint model_checkpoint_345_32k_v3 --dataset_cache xinli001_jiandanxinli-qa.topics-convai-GPT2BPETokenizer_CN_32K_BPE-cache/cache --min_length 125 --max_length 1000 --temperature 0.7 --top_p 0.9"
 ```
 
 ## Web API
@@ -38,10 +38,13 @@ python -m chardemo \
 
 > ⚠ **注意**:
 >
-> 这个 Web 服务程序只会加载一个 `interact` 进程。也就是说，同一时间是能存在一个会话。
-> 返回的会话列表最多只有一个元素。
+> 这个 Web 服务程序只会加载一个 `interact` 进程。也就是说：
+>
+> - 同一时间是能存在一个 `interact` 会话。
+> - `interact` 列表最多只有一个元素。
+> - 如果重置 `interact`，在创建新 `interact` 实例的同时，也会释放原有的实例。
 
-#### 获取会话 ID 的列表
+#### 获取 interact 列表
 
 获取服务器上当前正在运行的会话（`interact` 进程）的 ID 的列表
 
@@ -49,15 +52,16 @@ python -m chardemo \
 
 - Method: `GET`
 
-- Response:
+- Response(application/json):
 
    ```js
-   {
-       "id": 34234,  // 会话 ID
-   }
+   [{
+    "id": 34234,  // 会话 ID
+    "personality": "我是不一样的烟火"  // 个性宣言
+    }]
    ```
 
-#### 重置会话
+#### 重置 interact
 
 服务重新释放-运行 `interact` 进程
 
@@ -65,16 +69,42 @@ python -m chardemo \
 
 - Method: `POST`
 
-- Response:
+- Response
 
-   ```js
-   {
-       "id": 34234,  // 会话 ID
-       "personality": "我是不一样的烟火"  // 个性宣言
-   }
-   ```
+  - Headers:
+    - `X-INTERACT-ID`: 在这个自定义头域返回 `interact` 的 ID.
 
-#### 获取会话信息
+  - Content (`Content-Type: plain/text`):
+
+    服务器会持续输出(Streaming) `interact` 初始化过程中的相关文本信息。
+
+    eg:
+
+    ```log
+    INFO:interact_v3.py:Namespace(dataset_cache='xinli001_jiandanxinli-qa.topics-convai-GPT2BPETokenizer_CN_32K_BPE-cache/cache',   dataset_path='', device='cuda', max_history=2, max_length=1000, min_length=125, model_checkpoint='model_checkpoint_345_32k_v3',   model_type='gpt2_bpe_cn', no_sample=False, seed=42, temperature=0.7, top_k=0, top_p=0.9)
+    INFO:interact_v3.py:Get pretrained model and tokenizer
+    INFO:interact_v3.py:load tokenizer....
+    INFO:transformers.tokenization_utils:Model name 'model_checkpoint_345_32k_v3' not found in model shortcut name list (). Assuming   'model_checkpoint_345_32k_v3' is a path or url to a directory containing tokenizer files.
+    INFO:transformers.tokenization_utils:Didn't find file model_checkpoint_345_32k_v3/merges.txt. We won't load it.
+    INFO:transformers.tokenization_utils:Didn't find file model_checkpoint_345_32k_v3/added_tokens.json. We won't load it.
+    INFO:transformers.tokenization_utils:Didn't find file model_checkpoint_345_32k_v3/special_tokens_map.json. We won't load it.
+    INFO:transformers.tokenization_utils:Didn't find file model_checkpoint_345_32k_v3/tokenizer_config.json. We won't load it.
+    INFO:transformers.tokenization_utils:loading file model_checkpoint_345_32k_v3/gpt2_huamei_corpus_bpe_32k_v2.model
+    INFO:transformers.tokenization_utils:loading file None
+    INFO:transformers.tokenization_utils:loading file None
+    INFO:transformers.tokenization_utils:loading file None
+    INFO:transformers.tokenization_utils:loading file None
+    INFO:interact_v3.py:load model....
+    ```
+
+> ⚠ **注意**:
+>
+> 由于初始化过程耗时很长，所以应考虑：
+>
+> - 设置较长的（如1分钟）的超时时间
+> - 使用 Streams API 获取来自服务器的持续响应
+
+#### 获取 interact 详情
 
 获取服务器上当前正在运行的会话（`interact` 进程）的 ID 的列表
 
@@ -82,7 +112,7 @@ python -m chardemo \
 
 - Method: `GET`
 
-- Response:
+- Response(`Content-Type: application/json`):
 
    ```js
    {
@@ -105,7 +135,7 @@ python -m chardemo \
 
    如果没有会话 ID 不存在，响应码为 `404 Not Found`
 
-#### 消息输入
+#### `interact` 消息输入
 
 将消息发送到 `interact` 程序，并返回机器回复的内容
 
@@ -115,7 +145,7 @@ python -m chardemo \
 
 - Method: `POST`
 
-- Request:
+- Request(`Content-Type: application/json`):
 
    ```js
    {
@@ -123,7 +153,7 @@ python -m chardemo \
    }
    ```
 
-- Response:
+- Response(`Content-Type: application/json`):
 
    ```js
    {
