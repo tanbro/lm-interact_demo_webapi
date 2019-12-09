@@ -1,4 +1,5 @@
-from sanic.response import text
+from sanic import response
 
-async def hello(request):
-  return text("hello! it works!")
+
+def hello(request):
+    return response.text("hello! it works!")
