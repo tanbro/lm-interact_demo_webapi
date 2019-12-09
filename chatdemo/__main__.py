@@ -19,8 +19,8 @@ def parse_args():
                        help='HTTP 服务地址 (default=%(default)s)')
     group.add_argument('--http-port', '-p', type=int, default=8888,
                        help='HTTP 服务端口 (default=%(default)s)')
-    group.add_argument('--allow-origin', type=str,
-                       help='Access-Control-Allow-Origin 响应头 (default=%(default)s)')
+    group.add_argument('--allow-origins', type=str, nargs='*',
+                       help='Access-Control-Allow-Origin 响应头中允许的域的列表 (default=%(default)s)')
     # interact
     group = parser.add_argument_group(
         'transformer-learning-conv-ai 交互演示命令行执行程序的相关运行参数')
@@ -31,6 +31,7 @@ def parse_args():
     group.add_argument("--interact-pwd", type=str, default=os.getcwd(),
                        help="交互对话程序的工作目录. (default=%(default)s)")
     args = parser.parse_args()
+    # return
     return args
 
 

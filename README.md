@@ -57,6 +57,23 @@ python -m chardemo \
    }
    ```
 
+#### 重置会话
+
+服务重新释放-运行 `interact` 进程
+
+- URL: `//{{SERVER_ADDR}}/interact`
+
+- Method: `POST`
+
+- Response:
+
+   ```js
+   {
+       "id": 34234,  // 会话 ID
+       "personality": "我是不一样的烟火"  // 个性宣言
+   }
+   ```
+
 #### 获取会话信息
 
 获取服务器上当前正在运行的会话（`interact` 进程）的 ID 的列表
@@ -87,23 +104,6 @@ python -m chardemo \
    ```
 
    如果没有会话 ID 不存在，响应码为 `404 Not Found`
-
-#### 重置会话
-
-服务重新释放-运行 `interact` 进程
-
-- URL: `//{{SERVER_ADDR}}/interact/reset`
-
-- Method: `POST`
-
-- Response:
-
-   ```js
-   {
-       "id": 34234,  // 会话 ID
-       "personality": "我是不一样的烟火"  // 个性宣言
-   }
-   ```
 
 #### 消息输入
 

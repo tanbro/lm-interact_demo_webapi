@@ -17,40 +17,28 @@ lock = asyncio.Lock()
 proc_info = {}
 
 
-class List(HTTPMethodView):
+class Index(HTTPMethodView):
 
-    def get(self, request):
-        if proc:
-            return response.json([proc.pid])
-        return response.json([])
+    def options(self, request):
+        return response.raw(b'')
 
-
-class Detail(HTTPMethodView):
-
-    def get(self, request, id_):
+    def get(self, request, id_=None):
+        if id_ is None:
+            if proc:
+                return response.json([proc.pid])
+            return response.json([])
+        #
         if not proc:
-            abort(404)
+            return response.text('', 404)
         if id_ != proc.pid:
-            abort(404)
+            return response.text('', 404)
         return response.json({
             'id': id_,
             'personality': proc_info['personality'],
             'history': proc_info['history'],
         })
 
-
-class Reset(HTTPMethodView):
-
-    def options(self, request):
-        return response.raw(b'')
-
-    async def get(self, request):
-        return await self.perform(request)
-
     async def post(self, request):
-        return await self.perform(request)
-
-    async def perform(self, request):
         global proc, proc_info
 
         program = app.config.interact_cmd
@@ -58,7 +46,7 @@ class Reset(HTTPMethodView):
         cwd = app.config.interact_pwd
 
         if lock.locked():
-            abort(409)
+            return response.text('', 409)
         async with lock:
             # 首先关闭
             await terminate_proc()
@@ -101,8 +89,10 @@ class Reset(HTTPMethodView):
                     if pos >= 0:
                         personality = line[pos + len(PERSONALITY_TEXT):]
                         personality = personality.strip().lstrip('▁').lstrip()
-                        logger.info('%s 启动成功. personality: %s',
-                                    proc, personality)
+                        logger.info(
+                            '%s 启动成功. personality: %s',
+                            proc, personality
+                        )
                         break
             proc_info['personality'] = personality
             return response.json(dict(
@@ -117,12 +107,12 @@ class Input(HTTPMethodView):
 
     async def post(self, request, id_):
         if lock.locked():
-            abort(409)
+            return response.text('', 409)
         async with lock:
             if not proc:
-                abort(404)
+                return response.text('', 404)
             if proc.pid != id_:
-                abort(404)
+                return response.text('', 404)
             # 用户输入
             msg = request.json['msg'].strip()
             logger.info('intput: %s', msg)
@@ -202,7 +192,7 @@ async def readline_from_stdout_or_stderr(stdout_stream, stderr_stream, timeout=N
             logger.error(
                 'EOF on %s. %s was terminated, return code: %s', name, proc, proc.returncode)
             await terminate_proc()
-            abort(500)
+            return response.text('', 500)
         result.append((name, data.decode().strip()))
 
     return result
