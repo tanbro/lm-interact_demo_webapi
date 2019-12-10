@@ -76,12 +76,12 @@ python -m chardemo \
 
   - Content (`Content-Type: plain/text`):
 
-    服务器会持续输出(Streaming) `interact` 初始化过程中的相关文本信息。
+    服务器会持续输出(Streaming) `interact` 初始化过程中的相关 log 文本信息。
 
     eg:
 
     ```log
-    INFO:interact_v3.py:Namespace(dataset_cache='xinli001_jiandanxinli-qa.topics-convai-GPT2BPETokenizer_CN_32K_BPE-cache/cache',   dataset_path='', device='cuda', max_history=2, max_length=1000, min_length=125, model_checkpoint='model_checkpoint_345_32k_v3',   model_type='gpt2_bpe_cn', no_sample=False, seed=42, temperature=0.7, top_k=0, top_p=0.9)
+    INFO:interact_v3.py:Namespace(dataset_cache='CN_32K_BPE/cache',   dataset_path='', device='cuda', max_history=2, max_length=1000, min_length=125, model_checkpoint='model_checkpoint_345_32k_v3',   no_sample=False, seed=42, temperature=0.7, top_k=0, top_p=0.9)
     INFO:interact_v3.py:Get pretrained model and tokenizer
     INFO:interact_v3.py:load tokenizer....
     INFO:transformers.tokenization_utils:Model name 'model_checkpoint_345_32k_v3' not found in model shortcut name list (). Assuming   'model_checkpoint_345_32k_v3' is a path or url to a directory containing tokenizer files.
@@ -101,8 +101,8 @@ python -m chardemo \
 >
 > 由于初始化过程耗时很长，所以应考虑：
 >
-> - 设置较长的（如3分钟）的超时时间
-> - 使用 Streams API 获取来自服务器的持续响应
+> - 设置较长的（建议3分钟）超时时间
+> - 使用 [Streams API](https://www.w3.org/TR/streams-api/) 获取来自服务器的持续响应 log 文本
 
 #### 获取 interact 详情
 
@@ -133,15 +133,15 @@ python -m chardemo \
     }
    ```
 
-   如果没有会话 ID 不存在，响应码为 `404 Not Found`
+   如果 interact ID 不存在，响应码为 `404 Not Found`
 
 #### `interact` 消息输入
 
-将消息发送到 `interact` 程序，并返回机器回复的内容
+将消息发送到 `interact` 程序，并在响应消息中返回机器回复的内容
 
 - URL: `//{{SERVER_ADDR}}/interact/<id:int>/input`
   - Args:
-    - `id`: 会话 ID
+    - `id`: interact ID
 
 - Method: `POST`
 
@@ -169,7 +169,7 @@ python -m chardemo \
 
 - URL: `//{{SERVER_ADDR}}/interact/<id:int>/clear`
   - Args:
-    - `id`: 会话 ID
+    - `id`: interact ID
 - Method: `POST`
 
 [Conda]: https://conda.io/
