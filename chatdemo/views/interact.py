@@ -44,7 +44,7 @@ class Index(HTTPMethodView):
     async def post(self, request):
         global proc, proc_info
 
-        program = app.config.interact_cmd
+        program = app.config.interact_prog
         args = shlex.split(app.config.interact_args)
         cwd = app.config.interact_pwd
 
