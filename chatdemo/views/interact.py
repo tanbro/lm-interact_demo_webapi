@@ -1,6 +1,7 @@
 import asyncio
 import os
 import shlex
+import signal
 from datetime import datetime
 
 from sanic import Sanic, response
@@ -9,6 +10,7 @@ from sanic.log import logger
 from sanic.views import HTTPMethodView
 
 from ..app import app
+from ..helpers.aiostreamslinereader import AioStreamsLineReader
 
 proc: asyncio.subprocess.Process = None
 lock = asyncio.Lock()
@@ -21,23 +23,22 @@ class Index(HTTPMethodView):
         return response.raw(b'')
 
     def get(self, request, id_=None):
+        # List
         if id_ is None:
             if proc:
-                return response.json([{
-                    'id': proc.pid,
-                    'personality': proc_info.get('personality')
-                }])
+                d = {'id': proc.pid}
+                d.update(proc_info)
+                d.pop('history')
+                return response.json([d])
             return response.json([])
-        #
+        # Detail
         if not proc:
             return response.text('', 404)
         if id_ != proc.pid:
             return response.text('', 404)
-        return response.json({
-            'id': id_,
-            'personality': proc_info['personality'],
-            'history': proc_info['history'],
-        })
+        d = {'id': proc.pid}
+        d.update(proc_info)
+        return response.json(d)
 
     async def post(self, request):
         global proc, proc_info
@@ -46,29 +47,47 @@ class Index(HTTPMethodView):
         args = shlex.split(app.config.interact_args)
         cwd = app.config.interact_pwd
 
-        async def stream_fn(res):
+        async def stream_from_interact(res):
             global proc_info
             personality = ''
-            while not personality:
-                # stdout stderr 同时读取
-                try:
-                    outputs = await readline_from_stdout_or_stderr(proc.stdout, proc.stderr, 1)
-                except asyncio.TimeoutError:
-                    continue
-                for name, line in outputs:
-                    logger.info('%s %s: %s', proc, name, line)
-                    if name.upper() == 'STDERR':
-                        # 以 stderr 输出作为 logging, streaming 到浏览器!
-                        await res.write(line + os.linesep)
-                    elif name.upper() == 'STDOUT':
-                        # 以第一个 stdout 输出作为 personality, 以及启动成功标志!
-                        personality = line.strip().lstrip('▁').lstrip()
-                        logger.info(
-                            '%s 启动成功. personality: %s',
-                            proc, personality
-                        )
+            response_aws = []
+            # 读 interact 进程输出
+            streams = proc.stdout, proc.stderr
+            async with AioStreamsLineReader(streams) as reader:
+                async for stdout_line, stderr_line in reader:
+                    if stdout_line:
+                        # 收到第一个 stdout 认为启动成功！输出内容当作 personality
+                        logger.info('%s STDOUT: %s', proc, stdout_line)
+                        personality = stdout_line
+                        # 发送到浏览器
+                        response_aws.append(asyncio.create_task(
+                            res.write(stderr_line + os.linesep)
+                        ))
                         break
-            proc_info['personality'] = personality
+                    elif stderr_line:
+                        logger.info('%s STDERR: %s', proc, stderr_line)
+                        # 发送到浏览器
+                        response_aws.append(asyncio.create_task(
+                            res.write(stderr_line + os.linesep)
+                        ))
+                if reader.at_eof:
+                    logger.error('%s: interact 进程已退出', proc)
+                    await terminate_proc()
+                    abort(500)
+            logger.info(
+                '%s 启动成功. personality: %s',
+                proc, personality
+            )
+            proc_info.update({
+                'personality': personality.lstrip('>').lstrip().lstrip('▁').lstrip(),
+                'started': True,
+            })
+            # 等待到浏览器发送完毕
+            if response_aws:
+                _, pending = await asyncio.wait(response_aws, timeout=15)
+                for task in pending:
+                    task.cancel()
+            # stream coroutine 结束
 
         if lock.locked():
             return response.text('', 409)
@@ -93,12 +112,13 @@ class Index(HTTPMethodView):
             logger.info('subprocess created: %s', proc)
             proc_info = {
                 'personality': '',
+                'started': False,
                 'history': [],
             }
             # 等待启动
             logger.info('持续读取 %s 进程输出，等待其启动完毕 ..', proc)
             # Streaming 读取 stdout, stderr ...
-            return response.stream(stream_fn, content_type='text/plain', headers={'X-INTERACT-ID': proc.pid})
+            return response.stream(stream_from_interact, headers={'X-INTERACT-ID': proc.pid})
 
 
 class Input(HTTPMethodView):
@@ -108,13 +128,18 @@ class Input(HTTPMethodView):
     async def post(self, request, id_):
         if lock.locked():
             return response.text('', 409)
+        # 用户输入
+        msg = request.json['msg'].strip()
+        if not msg:
+            return response.text('', 400)
+        # interact 进程交互
         async with lock:
             if not proc:
                 return response.text('', 404)
             if proc.pid != id_:
                 return response.text('', 404)
-            # 用户输入
-            msg = request.json['msg'].strip()
+            if not proc_info.get('started'):
+                return response.text('', 409)
             logger.info('intput: %s', msg)
             proc_info['history'].append({
                 'dir': 'input',
@@ -127,26 +152,53 @@ class Input(HTTPMethodView):
             await proc.stdin.drain()
             # 读取 interact 进程 的 stdout/stderr 输出
             msg = ''
-            while not msg:
-                try:
-                    outputs = await readline_from_stdout_or_stderr(proc.stdout, proc.stderr, 1)
-                except asyncio.TimeoutError:
-                    continue
-                for name, line in outputs:
-                    logger.info('%s %s: %s', proc, name, line)
-                    if name.upper() == 'STDOUT':
+            streams = proc.stdout, proc.stderr
+            async with AioStreamsLineReader(streams) as reader:
+                async for stdout_line, stderr_line in reader:
+                    if stdout_line:
                         # 得到了返回消息
-                        line = line.lstrip('>').lstrip().lstrip('▁').lstrip()
-                        msg += line
+                        logger.info('%s STDOUT: %s', proc, stdout_line)
+                        msg = stdout_line
                         break
+                    elif stderr_line:
+                        logger.info('%s STDERR: %s', proc, stderr_line)
+                if reader.at_eof:
+                    logger.error('%s: interact 进程已退出', proc)
+                    await terminate_proc()
+                    abort(500)
+            # 处理返回消息
+            msg = msg.lstrip('>').lstrip().lstrip('▁').lstrip()
+            # 更新 interact 对话历史
             proc_info['history'].append({
                 'dir': 'output',
                 'msg': msg,
                 'time': datetime.now().isoformat(),
             })
+            # response
             return response.json(dict(
                 msg=msg
             ))
+
+
+class Clear(HTTPMethodView):
+    def options(self, request, id_):
+        return response.raw(b'')
+
+    async def post(self, request, id_):
+        if lock.locked():
+            return response.text('', 409)
+        # interact 进程交互
+        async with lock:
+            if not proc:
+                return response.text('', 404)
+            if proc.pid != id_:
+                return response.text('', 404)
+            if not proc_info.get('started'):
+                return response.text('', 409)
+            # 发送 HUP
+            os.kill(proc.pid, signal.SIGHUP)
+        # response
+        return response.text('')
 
 
 async def terminate_proc():
@@ -166,33 +218,3 @@ async def terminate_proc():
                         proc, proc.returncode)
             proc = None
             proc_info = {}
-
-
-async def readline_from_stdout_or_stderr(stdout_stream, stderr_stream, timeout=None):
-
-    async def readline(name, stream):
-        line = await stream.readline()
-        return name, line
-
-    result = []
-
-    aws = {
-        asyncio.create_task(readline(*args))
-        for args in zip(('STDOUT', 'STDERR'), (stdout_stream, stderr_stream))
-    }
-
-    done, pending = await asyncio.wait(aws, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
-
-    for task in pending:
-        task.cancel()
-
-    for task in done:
-        name, data = task.result()
-        if data == b'':
-            logger.error(
-                'EOF on %s. %s was terminated, return code: %s', name, proc, proc.returncode)
-            await terminate_proc()
-            return response.text('', 500)
-        result.append((name, data.decode().strip()))
-
-    return result
