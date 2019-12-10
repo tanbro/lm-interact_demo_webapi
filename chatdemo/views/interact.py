@@ -10,8 +10,6 @@ from sanic.views import HTTPMethodView
 
 from ..app import app
 
-PERSONALITY_TEXT = 'Selected personality:'
-
 proc: asyncio.subprocess.Process = None
 lock = asyncio.Lock()
 proc_info = {}
@@ -59,12 +57,12 @@ class Index(HTTPMethodView):
                     continue
                 for name, line in outputs:
                     logger.info('%s %s: %s', proc, name, line)
-                    await res.write(line + os.linesep)
-                    # 是否满足启动时候的输出字符串判断？
-                    pos = line.find(PERSONALITY_TEXT)
-                    if pos >= 0:
-                        personality = line[pos + len(PERSONALITY_TEXT):]
-                        personality = personality.strip().lstrip('▁').lstrip()
+                    if name.upper() == 'STDERR':
+                        # 以 stderr 输出作为 logging, streaming 到浏览器!
+                        await res.write(line + os.linesep)
+                    elif name.upper() == 'STDOUT':
+                        # 以第一个 stdout 输出作为 personality, 以及启动成功标志!
+                        personality = line.strip().lstrip('▁').lstrip()
                         logger.info(
                             '%s 启动成功. personality: %s',
                             proc, personality
