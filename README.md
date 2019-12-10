@@ -161,5 +161,16 @@ python -m chardemo \
    }
    ```
 
+#### `interact` 清空对话历史
+
+调用后，向 `interact` 程序发送清空历史的信号。
+
+`interact` 程序的对话模型会忘记历史，但是这个 Web 程序自身并不清空历史记录。
+
+- URL: `//{{SERVER_ADDR}}/interact/<id:int>/clear`
+  - Args:
+    - `id`: 会话 ID
+- Method: `POST`
+
 [Conda]: https://conda.io/
 [setuptools]: https://setuptools.readthedocs.io/
