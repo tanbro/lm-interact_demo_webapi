@@ -50,7 +50,7 @@ TODO ...
 > - `Chat` 列表最多只有一个元素。
 > - 如果重置 `Chat`，在创建新 `Chat` 实例的同时，也会释放原有的实例。
 
-#### 获取 interact 列表
+#### 获取 Chat 列表
 
 获取服务器上当前正在运行的会话（`Chat` 进程）的 ID 的列表
 
@@ -141,15 +141,15 @@ TODO ...
     }
    ```
 
-   如果 interact ID 不存在，响应码为 `404 Not Found`
+   如果 ID 不存在，响应码为 `404 Not Found`
 
-#### `chat` 消息输入
+#### Chat 消息输入
 
 将消息发送到 `chat` 程序，并在响应消息中返回机器回复的内容
 
 - URL: `//{{SERVER_ADDR}}/chat/<id:int>/input`
   - Args:
-    - `id`: interact ID
+    - `id`: chat ID
 
 - Method: `POST`
 
@@ -169,7 +169,7 @@ TODO ...
    }
    ```
 
-#### `chat` 清空对话历史
+#### Chat 清空对话历史
 
 调用后，向 `chat` 程序发送清空历史的信号。
 
@@ -245,7 +245,7 @@ TODO ...
 
 - URL: `//{{SERVER_ADDR}}/qa/<id:int>/input`
   - Args:
-    - `id`: interact ID
+    - `id`: QA ID
 
 - Method: `POST`
 
