@@ -32,23 +32,23 @@ python -m chardemo \
 
 ## Web API
 
-### interact
+### Chat
 
-管理 `interact` 程序进程以及与之交互的一组 API
+管理 `Chat` 程序进程以及与之交互的一组 API
 
 > ⚠ **注意**:
 >
-> 这个 Web 服务程序只会加载一个 `interact` 进程。也就是说：
+> 这个 Web 服务程序只会加载一个 `Chat` 进程。也就是说：
 >
-> - 同一时间是能存在一个 `interact` 会话。
-> - `interact` 列表最多只有一个元素。
-> - 如果重置 `interact`，在创建新 `interact` 实例的同时，也会释放原有的实例。
+> - 同一时间是能存在一个 `Chat` 会话。
+> - `Chat` 列表最多只有一个元素。
+> - 如果重置 `Chat`，在创建新 `Chat` 实例的同时，也会释放原有的实例。
 
 #### 获取 interact 列表
 
-获取服务器上当前正在运行的会话（`interact` 进程）的 ID 的列表
+获取服务器上当前正在运行的会话（`Chat` 进程）的 ID 的列表
 
-- URL: `//{{SERVER_ADDR}}/interact`
+- URL: `//{{SERVER_ADDR}}/chat`
 
 - Method: `GET`
 
@@ -63,16 +63,16 @@ python -m chardemo \
 
 #### 重置 interact
 
-服务重新释放-运行 `interact` 进程
+服务重新释放-运行 `chat` 进程
 
-- URL: `//{{SERVER_ADDR}}/interact`
+- URL: `//{{SERVER_ADDR}}/chat`
 
 - Method: `POST`
 
 - Response
 
   - Headers:
-    - `X-INTERACT-ID`: 在这个自定义头域返回 `interact` 的 ID.
+    - `X-CHAT-ID`: 在这个自定义头域返回 `chat` 的 ID.
 
   - Content (`Content-Type: plain/text`):
 
@@ -106,9 +106,9 @@ python -m chardemo \
 
 #### 获取 interact 详情
 
-获取服务器上当前正在运行的会话（`interact` 进程）的 ID 的列表
+获取服务器上当前正在运行的会话（`chat` 进程）的 ID 的列表
 
-- URL: `//{{SERVER_ADDR}}/interact/<id: int>`
+- URL: `//{{SERVER_ADDR}}/chat/<id: int>`
 
 - Method: `GET`
 
@@ -139,7 +139,7 @@ python -m chardemo \
 
 将消息发送到 `interact` 程序，并在响应消息中返回机器回复的内容
 
-- URL: `//{{SERVER_ADDR}}/interact/<id:int>/input`
+- URL: `//{{SERVER_ADDR}}/chat/<id:int>/input`
   - Args:
     - `id`: interact ID
 
@@ -163,11 +163,11 @@ python -m chardemo \
 
 #### `interact` 清空对话历史
 
-调用后，向 `interact` 程序发送清空历史的信号。
+调用后，向 `chat` 程序发送清空历史的信号。
 
-`interact` 程序的对话模型会忘记历史，但是这个 Web 程序自身并不清空历史记录。
+`chat` 程序的对话模型会忘记历史，但是这个 Web 程序自身并不清空历史记录。
 
-- URL: `//{{SERVER_ADDR}}/interact/<id:int>/clear`
+- URL: `//{{SERVER_ADDR}}/chat/<id:int>/clear`
   - Args:
     - `id`: interact ID
 - Method: `POST`

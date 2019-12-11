@@ -43,9 +43,9 @@ class Index(HTTPMethodView):
     async def post(self, request):
         global proc, proc_info
 
-        program = app.config.interact_prog
-        args = shlex.split(app.config.interact_args)
-        cwd = app.config.interact_pwd
+        program = app.config.chat_prog
+        args = shlex.split(app.config.chat_args)
+        cwd = app.config.chat_pwd
 
         async def stream_from_interact(res):
             global proc_info
@@ -118,7 +118,7 @@ class Index(HTTPMethodView):
             # 等待启动
             logger.info('持续读取 %s 进程输出，等待其启动完毕 ..', proc)
             # Streaming 读取 stdout, stderr ...
-            return response.stream(stream_from_interact, headers={'X-INTERACT-ID': proc.pid})
+            return response.stream(stream_from_interact, headers={'X-CHAT-ID': proc.pid})
 
 
 class Input(HTTPMethodView):

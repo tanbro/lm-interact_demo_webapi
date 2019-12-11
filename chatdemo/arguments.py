@@ -6,7 +6,7 @@ import sys
 def get_args(description: str = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=description)
     add_web_args(parser)
-    add_interact_args(parser)
+    add_chat_args(parser)
     return parser.parse_args()
 
 
@@ -23,12 +23,12 @@ def add_web_args(parser):
                        '"*" 表示允许所有的域, None 表示禁止 CORS。 (default=%(default)s)')
 
 
-def add_interact_args(parser):
+def add_chat_args(parser):
     group = parser.add_argument_group(
-        'transformer-learning-conv-ai 交互演示命令行执行程序的相关运行参数')
-    group.add_argument("--interact-prog", type=str, default=sys.executable,
-                       help="交互对话程序的启动命令。 (default=%(default)s)")
-    group.add_argument("--interact-args", type=str, default='interact2.py',
-                       help="交互对话程序的命令参数。 (default=%(default)s)")
-    group.add_argument("--interact-pwd", type=str, default=os.getcwd(),
-                       help="交互对话程序的工作目录。 (default=%(default)s)")
+        'transformer-learning-conv-ai 交互式聊天命令行执行程序的相关运行参数')
+    group.add_argument("--chat-prog", type=str, default=sys.executable,
+                       help="交互式聊天对话程序的启动命令。 (default=%(default)s)")
+    group.add_argument("--chat-args", type=str, default='interact2.py',
+                       help="交互式聊天对话程序的命令参数。 (default=%(default)s)")
+    group.add_argument("--chat-pwd", type=str, default=os.getcwd(),
+                       help="交互式聊天对话程序的工作目录。 (default=%(default)s)")

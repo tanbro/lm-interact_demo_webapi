@@ -1,9 +1,10 @@
 from .app import app
-from .views import hello, interact
+from .views import hello, chat
 
 
 app.add_route(hello.hello, '/hello')
-app.add_route(interact.Index.as_view(), '/interact')
-app.add_route(interact.Index.as_view(), '/interact/<id_:int>')
-app.add_route(interact.Input.as_view(), '/interact/<id_:int>/input')
-app.add_route(interact.Clear.as_view(), '/interact/<id_:int>/clear')
+
+app.add_route(chat.Index.as_view(), '/chat')
+app.add_route(chat.Index.as_view(), '/chat/<id_:int>')
+app.add_route(chat.Input.as_view(), '/chat/<id_:int>/input')
+app.add_route(chat.Clear.as_view(), '/chat/<id_:int>/clear')
