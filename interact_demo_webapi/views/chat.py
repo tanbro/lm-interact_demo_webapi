@@ -55,7 +55,7 @@ class Index(HTTPMethodView):
             streams = proc.stdout, proc.stderr
             async with AioStreamsLineReader(streams) as reader:
                 async for stdout_line, stderr_line in reader:
-                    if stdout_line:
+                    if stdout_line is not None:
                         # 收到第一个 stdout 认为启动成功！输出内容当作 personality
                         logger.info('%s STDOUT: %s', proc, stdout_line)
                         personality = stdout_line
@@ -63,13 +63,14 @@ class Index(HTTPMethodView):
                         response_aws.append(asyncio.create_task(
                             res.write(stderr_line + os.linesep)
                         ))
-                        break
-                    elif stderr_line:
+                    elif stderr_line is not None:
                         logger.info('%s STDERR: %s', proc, stderr_line)
                         # 发送到浏览器
                         response_aws.append(asyncio.create_task(
                             res.write(stderr_line + os.linesep)
                         ))
+                    if personality:
+                        break
                 if reader.at_eof:
                     logger.error('%s: interact 进程已退出', proc)
                     await terminate_proc()
@@ -118,7 +119,7 @@ class Index(HTTPMethodView):
             # 等待启动
             logger.info('持续读取 %s 进程输出，等待其启动完毕 ..', proc)
             # Streaming 读取 stdout, stderr ...
-            return response.stream(stream_from_interact, headers={'X-CHAT-ID': proc.pid})
+            return response.stream(stream_from_interact, headers={'X-PROCID': proc.pid})
 
 
 class Input(HTTPMethodView):

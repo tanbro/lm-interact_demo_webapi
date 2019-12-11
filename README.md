@@ -1,8 +1,10 @@
 # README
 
-我们利用来自 [huggingface](https://huggingface.co/) 的 [transfer-learning-conv-ai](https://github.com/huggingface/transfer-learning-conv-ai)，基于经过 [pytorch-transformers](https://github.com/huggingface/transformers) 包装和改装的 [GPT2](https://github.com/openai/gpt-2) 进行多轮机器对话。
+这个项目提供以下几个命令行程序的 Demo WebAPI，用于我们基于浏览器的演示程序：
 
-这个项目为多轮对话提供基于浏览器的 ChatDemo WebAPI.
+1. 利用来自 [huggingface](https://huggingface.co/) 的 [transfer-learning-conv-ai](https://github.com/huggingface/transfer-learning-conv-ai)，基于经过 [pytorch-transformers](https://github.com/huggingface/transformers) 包装和改装的 [GPT2](https://github.com/openai/gpt-2) 进行多轮机器对话。
+
+1. 利用来自 [NVidia](https://www.nvidia.com/) 的 [Megatron-LM](https://github.com/NVIDIA/Megatron-LM) 模型进行 QA 回答生成。
 
 ## 安装
 
@@ -24,11 +26,15 @@ pip install -r requirements.txt
 
 ```bash
 cd /path/of/the/project
-python -m chardemo \
-    --interact-cmd "/home/kangzh/miniconda3/envs/python3.6/bin/python" \
-    --interact-pwd "/home/kangzh/transfer-learning-conv-ai" \
-    --interact-args "interact_v3.py --model_type gpt2_bpe_cn --model_checkpoint model_checkpoint_345_32k_v3 --dataset_cache xinli001_jiandanxinli-qa.topics-convai-GPT2BPETokenizer_CN_32K_BPE-cache/cache --min_length 125 --max_length 1000 --temperature 0.7 --top_p 0.9"
+python -m interact_demo_webapi \
+    --chat-cmd "/home/kangzh/miniconda3/envs/python3.6/bin/python" \
+    --chat-pwd "/home/kangzh/transfer-learning-conv-ai" \
+    --chat-args "interact_v3.py --model_type gpt2_bpe_cn --model_checkpoint model_checkpoint_345_32k_v3 --dataset_cache xinli001_jiandanxinli-qa.topics-convai-GPT2BPETokenizer_CN_32K_BPE-cache/cache --min_length 125 --max_length 1000 --temperature 0.7 --top_p 0.9"
 ```
+
+### 命令行参数
+
+TODO ...
 
 ## Web API
 
@@ -61,9 +67,11 @@ python -m chardemo \
     }]
    ```
 
-#### 重置 interact
+#### 重置 chat
 
 服务重新释放-运行 `chat` 进程
+
+由于目前只有一个后端进程，调用后原有的进程被释放
 
 - URL: `//{{SERVER_ADDR}}/chat`
 
@@ -72,11 +80,11 @@ python -m chardemo \
 - Response
 
   - Headers:
-    - `X-CHAT-ID`: 在这个自定义头域返回 `chat` 的 ID.
+    - `X-PROCID`: 在这个自定义头域返回 `chat` 的 ID.
 
   - Content (`Content-Type: plain/text`):
 
-    服务器会持续输出(Streaming) `interact` 初始化过程中的相关 log 文本信息。
+    服务器会持续输出(Streaming) 后端进程初始化过程中的相关 log 文本信息。
 
     eg:
 
@@ -104,7 +112,7 @@ python -m chardemo \
 > - 设置较长的（建议3分钟）超时时间
 > - 使用 [Streams API](https://www.w3.org/TR/streams-api/) 获取来自服务器的持续响应 log 文本
 
-#### 获取 interact 详情
+#### 获取 chat 详情
 
 获取服务器上当前正在运行的会话（`chat` 进程）的 ID 的列表
 
@@ -135,9 +143,9 @@ python -m chardemo \
 
    如果 interact ID 不存在，响应码为 `404 Not Found`
 
-#### `interact` 消息输入
+#### `chat` 消息输入
 
-将消息发送到 `interact` 程序，并在响应消息中返回机器回复的内容
+将消息发送到 `chat` 程序，并在响应消息中返回机器回复的内容
 
 - URL: `//{{SERVER_ADDR}}/chat/<id:int>/input`
   - Args:
@@ -161,7 +169,7 @@ python -m chardemo \
    }
    ```
 
-#### `interact` 清空对话历史
+#### `chat` 清空对话历史
 
 调用后，向 `chat` 程序发送清空历史的信号。
 
@@ -169,8 +177,94 @@ python -m chardemo \
 
 - URL: `//{{SERVER_ADDR}}/chat/<id:int>/clear`
   - Args:
-    - `id`: interact ID
+    - `id`: chat ID
 - Method: `POST`
+
+### QA
+
+目前只能加载一个 QA 后台进程！
+
+#### 获取 QA 进程列表
+
+获取服务器上当前正在运行的 `QA` 后端实例 ID 的列表
+
+- URL: `//{{SERVER_ADDR}}/qa`
+
+- Method: `GET`
+
+- Response(application/json):
+
+   ```js
+   [{
+    "id": 34234,  // ID
+    }]
+   ```
+
+#### 重置 QA
+
+服务重新释放-运行 `qa` 后端进程。
+
+由于目前只有一个后端进程，调用后原有的进程被释放
+
+- URL: `//{{SERVER_ADDR}}/qa`
+
+- Method: `POST`
+
+- Response
+
+  - Headers:
+    - `X-PROCID`: 在这个自定义头域返回 `chat` 的 ID.
+
+  - Content (`Content-Type: plain/text`):
+
+    服务器会持续输出(Streaming) 后端进程初始化过程中的相关 log 文本信息。
+
+    eg:
+
+    ```sh
+     > using dynamic loss scaling
+    > initializing model parallel with size 1
+    > initializing model parallel cuda seeds on global rank 0, model parallel rank 0, and data parallel rank 0 with model parallel seed: 3952 and data parallel seed: 1234
+    prepare tokenizer done
+    building GPT2 model ...
+     > number of parameters on model parallel rank 0: 110516736
+    global rank 0 is loading checkpoint checkpoints/gpt2-117m-emotion/iter_0470000/mp_rank_00/model_optim_rng.pt
+      successfully loaded checkpoints/gpt2-117m-emotion/iter_0470000/mp_rank_00/model_optim_rng.pt
+    ```
+
+> ⚠ **注意**:
+>
+> 由于初始化过程耗时很长，所以应考虑：
+>
+> - 设置较长的（建议1分钟）超时时间
+> - 使用 [Streams API](https://www.w3.org/TR/streams-api/) 获取来自服务器的持续响应 log 文本
+
+#### QA 答文生成
+
+将消息发送到 `QA` 程序，并在响应消息中返回机器回复的内容
+
+- URL: `//{{SERVER_ADDR}}/qa/<id:int>/input`
+  - Args:
+    - `id`: interact ID
+
+- Method: `POST`
+
+- Request(`Content-Type: application/json`):
+
+   ```js
+   {
+       "title": "武汉是哪里的省会？",  // 问题的标题
+       "text": "如题。武汉是哪个省的省会呀？一直很疑惑"  // 问题的内容
+   }
+   ```
+
+- Response(`Content-Type: application/json`):
+
+   ```js
+   {
+       "answer": "武汉是广西南宁自治区的省会，始建于秦大业65年，是中国四大城市中的第七位。"  // 生成的答案
+   }
+   ```
 
 [Conda]: https://conda.io/
 [setuptools]: https://setuptools.readthedocs.io/

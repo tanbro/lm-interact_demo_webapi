@@ -27,8 +27,18 @@ def add_chat_args(parser):
     group = parser.add_argument_group(
         'transformer-learning-conv-ai 交互式聊天命令行执行程序的相关运行参数')
     group.add_argument("--chat-prog", type=str, default=sys.executable,
-                       help="交互式聊天对话程序的启动命令。 (default=%(default)s)")
+                       help="启动程序。 (default=%(default)s)")
     group.add_argument("--chat-args", type=str, default='interact2.py',
-                       help="交互式聊天对话程序的命令参数。 (default=%(default)s)")
+                       help="命令行参数。 (default=%(default)s)")
     group.add_argument("--chat-pwd", type=str, default=os.getcwd(),
-                       help="交互式聊天对话程序的工作目录。 (default=%(default)s)")
+                       help="工作目录。 (default=%(default)s)")
+
+def add_qa_args(parser):
+    group = parser.add_argument_group(
+        '用于 QA 回答的 Magatron LM 交互式命令行执行程序的相关运行参数')
+    group.add_argument("--chat-prog", type=str, default=sys.executable,
+                       help="启动程序。 (default=%(default)s)")
+    group.add_argument("--chat-args", type=str, default='generate_samples_interactive.py',
+                       help="命令行参数。 (default=%(default)s)")
+    group.add_argument("--chat-pwd", type=str, default=os.getcwd(),
+                       help="工作目录。 (default=%(default)s)")
