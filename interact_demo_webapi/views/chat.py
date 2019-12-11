@@ -54,22 +54,18 @@ class Index(HTTPMethodView):
             # 读 interact 进程输出
             streams = proc.stdout, proc.stderr
             async with AioStreamsLineReader(streams) as reader:
-                async for stdout_line, stderr_line in reader:
-                    if stdout_line is not None:
-                        # 收到第一个 stdout 认为启动成功！输出内容当作 personality
-                        logger.info('%s STDOUT: %s', proc, stdout_line)
-                        personality = stdout_line
-                        # 发送到浏览器
-                        response_aws.append(asyncio.create_task(
-                            res.write(stderr_line + os.linesep)
-                        ))
-                    elif stderr_line is not None:
-                        logger.info('%s STDERR: %s', proc, stderr_line)
-                        # 发送到浏览器
-                        response_aws.append(asyncio.create_task(
-                            res.write(stderr_line + os.linesep)
-                        ))
-                    if personality:
+                async for line_pair in reader:
+                    for name, line in zip(('STDOUT', 'STDERR'), line_pair):
+                        if line is not None:
+                            logger.info('%s %s: %s', proc, name, line)
+                            # stdout, stderr 发送到浏览器
+                            response_aws.append(asyncio.create_task(
+                                res.write(line + os.linesep)
+                            ))
+                            # 收到第一个 stdout 认为启动成功！输出内容当作 personality
+                            if name == 'STDOUT':
+                                personality = line
+                    if personality:  # 认为启动成功！
                         break
                 if reader.at_eof:
                     logger.error('%s: interact 进程已退出', proc)
@@ -152,17 +148,17 @@ class Input(HTTPMethodView):
             proc.stdin.write(data)
             await proc.stdin.drain()
             # 读取 interact 进程 的 stdout/stderr 输出
-            msg = ''
+            msg = None
             streams = proc.stdout, proc.stderr
             async with AioStreamsLineReader(streams) as reader:
-                async for stdout_line, stderr_line in reader:
-                    if stdout_line:
-                        # 得到了返回消息
-                        logger.info('%s STDOUT: %s', proc, stdout_line)
-                        msg = stdout_line
+                async for line_pair in reader:
+                    for name, line in zip(('STDOUT', 'STDERR'), (line_pair)):
+                        logger.info('%s: %s: %s', proc, name, line)
+                        if line is not None:
+                            if name == 'STDOUT':
+                                msg = line
+                    if msg is not None:
                         break
-                    elif stderr_line:
-                        logger.info('%s STDERR: %s', proc, stderr_line)
                 if reader.at_eof:
                     logger.error('%s: interact 进程已退出', proc)
                     await terminate_proc()

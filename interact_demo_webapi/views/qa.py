@@ -24,41 +24,44 @@ class Index(HTTPMethodView):
 
     def get(self, request):
         # List
-        pass
+        if proc:
+            d = {'id': proc.pid}
+            d.update(proc_info)
+            return response.json([d])
+        return response.json([])
 
     async def post(self, request):
         global proc, proc_info
 
         program = app.config.qa_prog
-        args = shlex.split(app.config.qa_args)
+        _args = app.config.qa_args
+        args = shlex.split(_args)
         cwd = app.config.qa_pwd
 
         async def stream_from_interact(res):
             global proc_info
-            personality = ''
+            started = False
             response_aws = []
             # 读 interact 进程输出
             streams = proc.stdout, proc.stderr
             async with AioStreamsLineReader(streams) as reader:
-                async for stdout_line, stderr_line in reader:
-                    if stdout_line is not None:
-                        # 收到第一个 stdout 认为启动成功！输出内容当作 personality
-                        logger.info('%s STDOUT: %s', proc, stdout_line)
-                        personality = stdout_line
-                        # 发送到浏览器
-                        response_aws.append(asyncio.create_task(
-                            res.write(stderr_line + os.linesep)
-                        ))
-                    elif stderr_line is not None:
-                        logger.info('%s STDERR: %s', proc, stderr_line)
-                        # 发送到浏览器
-                        response_aws.append(asyncio.create_task(
-                            res.write(stderr_line + os.linesep)
-                        ))
+                async for line_pair in reader:
+                    for name, line in zip(('STDOUT', 'STDERR'), line_pair):
+                        if line is not None:
+                            logger.info('%s %s: %s', proc, name, line)
+                            # stdout, stderr 发送到浏览器
+                            response_aws.append(asyncio.create_task(
+                                res.write(line + os.linesep)
+                            ))
+                            if line == 'Started':
+                                started = True
+                    if started:
+                        break
                 if reader.at_eof:
                     logger.error('%s: interact 进程已退出', proc)
                     await terminate_proc()
                     abort(500)
+            proc_info.update({'started': True})
             logger.info(
                 '%s 启动成功',
                 proc
@@ -93,14 +96,64 @@ class Index(HTTPMethodView):
             )
             logger.info('subprocess created: %s', proc)
             proc_info = {
-                'personality': '',
+                'program': program,
+                'cwd': cwd,
+                'args': _args,
                 'started': False,
-                'history': [],
             }
             # 等待启动
             logger.info('持续读取 %s 进程输出，等待其启动完毕 ..', proc)
             # Streaming 读取 stdout, stderr ...
             return response.stream(stream_from_interact, headers={'X-PROCID': proc.pid})
+
+
+class Input(HTTPMethodView):
+    def options(self, request, id_):
+        return response.raw(b'')
+
+    async def post(self, request, id_):
+        if lock.locked():
+            return response.text('', 409)
+        # 用户输入
+        title = request.json['title'].strip()
+        text = request.json['text'].strip()
+        if (not title) and (not text):
+            return response.text('', 400)
+        # interact 进程交互
+        async with lock:
+            if not proc:
+                return response.text('', 404)
+            if proc.pid != id_:
+                return response.text('', 404)
+            if not proc_info.get('started'):
+                return response.text('', 409)
+            logger.info('intput: %s\n\t%s', title, text)
+            # 传到 interact 进程
+            context_string = f'{title}<sep>{text}<sep><sep><|endoftext|>'
+            data = (context_string + os.linesep).encode()
+            proc.stdin.write(data)
+            await proc.stdin.drain()
+            # 读取 interact 进程 的 stdout/stderr 输出
+            answer = None
+            streams = proc.stdout, proc.stderr
+            async with AioStreamsLineReader(streams) as reader:
+                async for line_pair in reader:
+                    for name, line in zip(('STDOUT', 'STDERR'), line_pair):
+                        if line is not None:
+                            logger.info('%s %s: %s', proc, name, line)
+                            if name == 'STDOUT':
+                                answer = line
+                    if answer is not None:
+                        break
+                if reader.at_eof:
+                    logger.error('%s: interact 进程已退出', proc)
+                    await terminate_proc()
+                    abort(500)
+            # response
+            answer = answer.lstrip('>').lstrip()
+            return response.json({
+                'answer': answer,
+            })
 
 
 async def terminate_proc():

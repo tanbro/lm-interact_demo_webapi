@@ -10,3 +10,4 @@ app.add_route(chat.Input.as_view(), '/chat/<id_:int>/input')
 app.add_route(chat.Clear.as_view(), '/chat/<id_:int>/clear')
 
 app.add_route(qa.Index.as_view(), '/qa')
+app.add_route(qa.Input.as_view(), '/qa/<id_:int>/input')

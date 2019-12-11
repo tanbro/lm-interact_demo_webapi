@@ -34,6 +34,7 @@ def add_chat_args(parser):
     group.add_argument("--chat-pwd", type=str, default=os.getcwd(),
                        help="工作目录。 (default=%(default)s)")
 
+
 def add_qa_args(parser):
     group = parser.add_argument_group(
         '用于 QA 回答的 Magatron LM 交互式命令行执行程序的相关运行参数')
