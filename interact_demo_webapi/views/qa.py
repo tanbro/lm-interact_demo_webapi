@@ -29,9 +29,9 @@ class Index(HTTPMethodView):
     async def post(self, request):
         global proc, proc_info
 
-        program = app.config.chat_prog
-        args = shlex.split(app.config.chat_args)
-        cwd = app.config.chat_pwd
+        program = app.config.qa_prog
+        args = shlex.split(app.config.qa_args)
+        cwd = app.config.qa_pwd
 
         async def stream_from_interact(res):
             global proc_info

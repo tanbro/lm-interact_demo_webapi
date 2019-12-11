@@ -7,6 +7,7 @@ def get_args(description: str = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=description)
     add_web_args(parser)
     add_chat_args(parser)
+    add_qa_args(parser)
     return parser.parse_args()
 
 
@@ -36,9 +37,9 @@ def add_chat_args(parser):
 def add_qa_args(parser):
     group = parser.add_argument_group(
         '用于 QA 回答的 Magatron LM 交互式命令行执行程序的相关运行参数')
-    group.add_argument("--chat-prog", type=str, default=sys.executable,
+    group.add_argument("--qa-prog", type=str, default=sys.executable,
                        help="启动程序。 (default=%(default)s)")
-    group.add_argument("--chat-args", type=str, default='generate_samples_interactive.py',
+    group.add_argument("--qa-args", type=str, default='generate_samples_interactive.py',
                        help="命令行参数。 (default=%(default)s)")
-    group.add_argument("--chat-pwd", type=str, default=os.getcwd(),
+    group.add_argument("--qa-pwd", type=str, default=os.getcwd(),
                        help="工作目录。 (default=%(default)s)")
