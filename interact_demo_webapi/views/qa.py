@@ -127,7 +127,7 @@ class Input(HTTPMethodView):
                 return response.text('', 404)
             if not proc_info.get('started'):
                 return response.text('', 409)
-            logger.info('intput: %s\n\t%s', title, text)
+            logger.info('intput: %s\t%s', title, text)
             # 传到 interact 进程
             context_string = f'{title}<sep>{text}<sep><sep><|endoftext|>'
             data = (context_string + os.linesep).encode()
