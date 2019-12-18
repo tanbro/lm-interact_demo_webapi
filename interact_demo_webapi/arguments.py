@@ -17,7 +17,7 @@ def add_web_args(parser):
                        help='输出 Web 框架的 Debug 信息。 (default=%(default)s)')
     group.add_argument('--http-host', '-s', type=str, default='*',
                        help='HTTP 服务地址。 (default=%(default)s)')
-    group.add_argument('--http-port', '-p', type=int, default=8888,
+    group.add_argument('--http-port', '-p', type=int, default=8090,
                        help='HTTP 服务端口。 (default=%(default)s)')
     group.add_argument('--allow-origins', type=str, nargs='*',
                        help='Access-Control-Allow-Origin 响应头中允许 CORS 的域列表。'

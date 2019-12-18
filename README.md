@@ -79,30 +79,38 @@ TODO ...
 
 - Response
 
-  - Headers:
-    - `X-PROCID`: 在这个自定义头域返回 `chat` 的 ID.
-
   - Content (`Content-Type: plain/text`):
 
-    服务器会持续输出(Streaming) 后端进程初始化过程中的相关 log 文本信息。
+    服务器会持续输出(Streaming) 后端进程初始化过程中的相关信息，如 `id`, `log` 文本等。
+
+    每一行一条信息，格式是： `key:value`
+
+    `key` 的值有：
+
+    - `stdout`: 后端进程的 `stdout` 输出文本
+    - `stderr`: 后端进程的 `stderr` 输出文本
+    - `id`: 后端进程的 `pid`，此处作为 `chat` 的会话 `ID`
+    - `personality` : 后端进程所采用对话用语言模型的机器人 `personality` 文本
 
     eg:
 
     ```log
-    INFO:interact_v3.py:Namespace(dataset_cache='CN_32K_BPE/cache',   dataset_path='', device='cuda', max_history=2, max_length=1000, min_length=125, model_checkpoint='model_checkpoint_345_32k_v3',   no_sample=False, seed=42, temperature=0.7, top_k=0, top_p=0.9)
-    INFO:interact_v3.py:Get pretrained model and tokenizer
-    INFO:interact_v3.py:load tokenizer....
-    INFO:transformers.tokenization_utils:Model name 'model_checkpoint_345_32k_v3' not found in model shortcut name list (). Assuming   'model_checkpoint_345_32k_v3' is a path or url to a directory containing tokenizer files.
-    INFO:transformers.tokenization_utils:Didn't find file model_checkpoint_345_32k_v3/merges.txt. We won't load it.
-    INFO:transformers.tokenization_utils:Didn't find file model_checkpoint_345_32k_v3/added_tokens.json. We won't load it.
-    INFO:transformers.tokenization_utils:Didn't find file model_checkpoint_345_32k_v3/special_tokens_map.json. We won't load it.
-    INFO:transformers.tokenization_utils:Didn't find file model_checkpoint_345_32k_v3/tokenizer_config.json. We won't load it.
-    INFO:transformers.tokenization_utils:loading file model_checkpoint_345_32k_v3/gpt2_huamei_corpus_bpe_32k_v2.model
-    INFO:transformers.tokenization_utils:loading file None
-    INFO:transformers.tokenization_utils:loading file None
-    INFO:transformers.tokenization_utils:loading file None
-    INFO:transformers.tokenization_utils:loading file None
-    INFO:interact_v3.py:load model....
+    stderr: INFO:interact_v3.py:Namespace(dataset_cache='CN_32K_BPE/cache',   dataset_path='', device='cuda', max_history=2, max_length=1000, min_length=125, model_checkpoint='model_checkpoint_345_32k_v3',   no_sample=False, seed=42, temperature=0.7, top_k=0, top_p=0.9)
+    stderr: INFO:interact_v3.py:Get pretrained model and tokenizer
+    stderr: INFO:interact_v3.py:load tokenizer....
+    stderr: INFO:transformers.tokenization_utils:Model name 'model_checkpoint_345_32k_v3' not found in model shortcut name list (). Assuming   'model_checkpoint_345_32k_v3' is a path or url to a directory containing tokenizer files.
+    stderr: INFO:transformers.tokenization_utils:Didn't find file model_checkpoint_345_32k_v3/merges.txt. We won't load it.
+    stderr: INFO:transformers.tokenization_utils:Didn't find file model_checkpoint_345_32k_v3/added_tokens.json. We won't load it.
+    stderr: INFO:transformers.tokenization_utils:Didn't find file model_checkpoint_345_32k_v3/special_tokens_map.json. We won't load it.
+    stderr: INFO:transformers.tokenization_utils:Didn't find file model_checkpoint_345_32k_v3/tokenizer_config.json. We won't load it.
+    stderr: INFO:transformers.tokenization_utils:loading file model_checkpoint_345_32k_v3/gpt2_huamei_corpus_bpe_32k_v2.model
+    stderr: INFO:transformers.tokenization_utils:loading file None
+    stderr: INFO:transformers.tokenization_utils:loading file None
+    stderr: INFO:transformers.tokenization_utils:loading file None
+    stderr: INFO:transformers.tokenization_utils:loading file None
+    stderr: INFO:interact_v3.py:load model....
+    id: 13564
+    personality: i'm ready!
     ```
 
 > ⚠ **注意**:
@@ -212,24 +220,24 @@ TODO ...
 
 - Response
 
-  - Headers:
-    - `X-PROCID`: 在这个自定义头域返回 `chat` 的 ID.
-
   - Content (`Content-Type: plain/text`):
 
-    服务器会持续输出(Streaming) 后端进程初始化过程中的相关 log 文本信息。
+    服务器会持续输出(Streaming) 后端进程初始化过程中的相关文本信息。参考 `chat` 的重置/初始化。
+
+    `QA` 的非 `stdout`, `stderr` 字段仅有 `id`
 
     eg:
 
     ```sh
-     > using dynamic loss scaling
-    > initializing model parallel with size 1
-    > initializing model parallel cuda seeds on global rank 0, model parallel rank 0, and data parallel rank 0 with model parallel seed: 3952 and data parallel seed: 1234
-    prepare tokenizer done
-    building GPT2 model ...
-     > number of parameters on model parallel rank 0: 110516736
-    global rank 0 is loading checkpoint checkpoints/gpt2-117m-emotion/iter_0470000/mp_rank_00/model_optim_rng.pt
-      successfully loaded checkpoints/gpt2-117m-emotion/iter_0470000/mp_rank_00/model_optim_rng.pt
+    stdout: > using dynamic loss scaling
+    stdout:> initializing model parallel with size 1
+    stdout:> initializing model parallel cuda seeds on global rank 0, model parallel rank 0, and data parallel rank 0 with model parallel stdout:seed: 3952 and data parallel seed: 1234
+    stdout:prepare tokenizer done
+    stdout:building GPT2 model ...
+    stdout: > number of parameters on model parallel rank 0: 110516736
+    stdout:global rank 0 is loading checkpoint checkpoints/gpt2-117m-emotion/iter_0470000/mp_rank_00/model_optim_rng.pt
+    stdout:  successfully loaded checkpoints/gpt2-117m-emotion/iter_0470000/mp_rank_00/model_optim_rng.pt
+    id:32231
     ```
 
 > ⚠ **注意**:
