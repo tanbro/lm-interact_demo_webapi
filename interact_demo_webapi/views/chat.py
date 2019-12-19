@@ -205,6 +205,8 @@ class Clear(HTTPMethodView):
                 return response.text('', 409)
             # 发送 HUP
             os.kill(proc.pid, signal.SIGHUP)
+            # clear
+            proc_info['history'] = []
         # response
         return response.text('')
 
