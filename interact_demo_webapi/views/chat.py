@@ -44,7 +44,8 @@ class Index(HTTPMethodView):
         global proc, proc_info
 
         program = app.config.chat_prog
-        args = shlex.split(app.config.chat_args)
+        _args = app.config.chat_args
+        args = shlex.split(_args)
         cwd = app.config.chat_pwd
 
         async def stream_from_interact(res):
@@ -90,11 +91,19 @@ class Index(HTTPMethodView):
                 'personality': personality,
                 'started': True,
             })
+            # 继续发送其它有的信息:
+            for k in ('args', 'cwd', 'program', ):
+                data = f'{k}:{proc_info.get(k, "")}' + os.linesep
+                response_aws.append(asyncio.create_task(
+                    res.write(data)
+                ))
             # 等待到浏览器发送完毕
             if response_aws:
                 _, pending = await asyncio.wait(response_aws, timeout=15)
-                for task in pending:
-                    task.cancel()
+                if pending:
+                    logger.warn('stream send task(s) timeout: %s', pending)
+                    for task in pending:
+                        task.cancel()
             # stream coroutine 结束
 
         if lock.locked():
@@ -119,6 +128,9 @@ class Index(HTTPMethodView):
             )
             logger.info('subprocess created: %s', proc)
             proc_info = {
+                'program': program,
+                'cwd': cwd,
+                'args': _args,
                 'personality': '',
                 'started': False,
                 'history': [],
