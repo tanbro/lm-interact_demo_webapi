@@ -1,242 +1,134 @@
-import asyncio
-import os
+import asyncio.subprocess
+import logging
 import shlex
-import signal
 from datetime import datetime
+from functools import partial
+from typing import Dict, List, Tuple, Union
+from uuid import UUID, uuid1
 
-from sanic import Sanic, response
-from sanic.exceptions import abort
-from sanic.log import logger
-from sanic.views import HTTPMethodView
+from fastapi import HTTPException
 
 from ..app import app
-from ..helpers.aiostreamslinereader import AioStreamsLineReader
+from ..models.chat import Conversation, ConversationState, TextMessage
+from ..settings import settings
+from ..utils.interactor import Interactor
 
-proc: asyncio.subprocess.Process = None
-lock = asyncio.Lock()
-proc_info = {}
+MAX_CONVERSATIONS = 1
+
+conversations: Dict[
+    str,
+    Tuple[Conversation, Interactor]
+] = {}
 
 
-class Index(HTTPMethodView):
+@app.get('/chat', response_model=List[Conversation])
+def list_():
+    return [i[0] for i in conversations]
 
-    def options(self, request):
-        return response.raw(b'')
 
-    def get(self, request, id_=None):
-        # List
-        if id_ is None:
-            if proc:
-                d = {'id': proc.pid}
-                d.update(proc_info)
-                d.pop('history')
-                return response.json([d])
-            return response.json([])
-        # Detail
-        if not proc:
-            return response.text('', 404)
-        if id_ != proc.pid:
-            return response.text('', 404)
-        d = {'id': proc.pid}
-        d.update(proc_info)
-        return response.json(d)
+@app.post('/chat', status_code=201, response_model=Conversation)
+async def create(wait: float = 0):
+    if len(conversations) >= MAX_CONVERSATIONS:
+        raise HTTPException(
+            status_code=409,
+            detail='Max length of conversations reached: {}'.format(
+                MAX_CONVERSATIONS)
+        )
 
-    async def post(self, request):
-        global proc, proc_info
+    logger = logging.getLogger('{}.create'.format(__name__))
 
-        program = app.config.chat_prog
-        _args = app.config.chat_args
-        args = shlex.split(_args)
-        cwd = app.config.chat_pwd
+    # todo: 关闭现有！
 
-        async def stream_from_interact(res):
-            global proc_info
-            personality = ''
-            response_aws = []
-            # 读 interact 进程输出
-            streams = proc.stdout, proc.stderr
-            async with AioStreamsLineReader(streams) as reader:
-                async for line_pair in reader:
-                    for name, line in zip(('stdout', 'stderr'), line_pair):
-                        if line is not None:
-                            logger.info('%s %s: %s', proc, name, line)
-                            # 发送 stdout, stderr 到浏览器
-                            data = '{}:{}'.format(name, line) + os.linesep
-                            response_aws.append(asyncio.create_task(
-                                res.write(data)
-                            ))
-                            # 收到第一个 stdout 认为启动成功！输出内容当作 personality
-                            if name == 'stdout':
-                                personality = (
-                                    line
-                                    .lstrip('>').lstrip()
-                                    .lstrip('▁').lstrip()
-                                )
-                    if personality:  # 认为启动成功！
-                        # 发送有用数据到浏览器
-                        for k, v in zip(('id', 'personality'), (proc.pid, personality)):
-                            data = '{}:{}'.format(k, v) + os.linesep
-                            response_aws.append(asyncio.create_task(
-                                res.write(data)
-                            ))
-                        break  # 认为启动成功，不再继续读取 std out/err
-                if reader.at_eof:
-                    logger.error('%s: interact 进程已退出', proc)
-                    await terminate_proc()
-                    abort(500)
-            logger.info(
-                '%s 启动成功. personality: %s',
-                proc, personality
+    # 新建聊天进程
+    uid = uuid1()
+    obj = Conversation(
+        uid=uid,
+        program=settings.chat_program,
+        args=settings.chat_args,
+        cwd=settings.chat_cwd
+    )
+    logger.info('%s', obj)
+
+    def fn_started_condition(_obj, _name, _line):
+        if _name.strip().lower() == 'stdout':
+            personality = (
+                _line
+                .lstrip('>').lstrip()
+                .lstrip('▁').lstrip()
             )
-            proc_info.update({
-                'personality': personality,
-                'started': True,
-            })
-            # 继续发送其它有的信息:
-            for k in ('args', 'cwd', 'program', ):
-                data = f'{k}:{proc_info.get(k, "")}' + os.linesep
-                response_aws.append(asyncio.create_task(
-                    res.write(data)
-                ))
-            # 等待到浏览器发送完毕
-            if response_aws:
-                _, pending = await asyncio.wait(response_aws, timeout=15)
-                if pending:
-                    logger.warn('stream send task(s) timeout: %s', pending)
-                    for task in pending:
-                        task.cancel()
-            # stream coroutine 结束
+            _obj.personality = personality
+            return True
+        return False
 
-        if lock.locked():
-            return response.text('', 409)
+    def fn_on_started(_obj):
+        _obj.state = ConversationState.started
 
-        async with lock:
-            # 首先关闭
-            await terminate_proc()
-
-            # 然后新建
-            logger.info(
-                'create subprocess: program=%s, args=%s, cwd=%s',
-                program, args, cwd
-            )
-            proc = await asyncio.create_subprocess_exec(
-                program,
-                *args,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd
-            )
-            logger.info('subprocess created: %s', proc)
-            proc_info = {
-                'program': program,
-                'cwd': cwd,
-                'args': _args,
-                'personality': '',
-                'started': False,
-                'history': [],
-            }
-            # 等待启动
-            logger.info('持续读取 %s 进程输出，等待其启动完毕 ..', proc)
-            # Streaming 读取 stdout, stderr ...
-            return response.stream(stream_from_interact)
-
-
-class Input(HTTPMethodView):
-    def options(self, request, id_):
-        return response.raw(b'')
-
-    async def post(self, request, id_):
-        if lock.locked():
-            return response.text('', 409)
-        # 用户输入
-        msg = request.json['msg'].strip()
-        if not msg:
-            return response.text('', 400)
-        # interact 进程交互
-        async with lock:
-            if not proc:
-                return response.text('', 404)
-            if proc.pid != id_:
-                return response.text('', 404)
-            if not proc_info.get('started'):
-                return response.text('', 409)
-            logger.info('intput: %s', msg)
-            proc_info['history'].append({
-                'dir': 'input',
-                'msg': msg,
-                'time': datetime.now().isoformat(),
-            })
-            # 传到 interact 进程
-            data = (msg.strip() + os.linesep).encode()
-            proc.stdin.write(data)
-            await proc.stdin.drain()
-            # 读取 interact 进程 的 stdout/stderr 输出
-            msg = None
-            streams = proc.stdout, proc.stderr
-            async with AioStreamsLineReader(streams) as reader:
-                async for line_pair in reader:
-                    for name, line in zip(('stdout', 'stderr'), (line_pair)):
-                        logger.info('%s: %s: %s', proc, name, line)
-                        if line is not None:
-                            if name == 'stdout':
-                                msg = line
-                    if msg is not None:
-                        break
-                if reader.at_eof:
-                    logger.error('%s: interact 进程已退出', proc)
-                    await terminate_proc()
-                    abort(500)
-            # 处理返回消息
-            msg = msg.lstrip('>').lstrip().lstrip('▁').lstrip()
-            # 更新 interact 对话历史
-            proc_info['history'].append({
-                'dir': 'output',
-                'msg': msg,
-                'time': datetime.now().isoformat(),
-            })
-            # response
-            return response.json(dict(
-                msg=msg
-            ))
-
-
-class Clear(HTTPMethodView):
-    def options(self, request, id_):
-        return response.raw(b'')
-
-    async def post(self, request, id_):
-        if lock.locked():
-            return response.text('', 409)
-        # interact 进程交互
-        async with lock:
-            if not proc:
-                return response.text('', 404)
-            if proc.pid != id_:
-                return response.text('', 404)
-            if not proc_info.get('started'):
-                return response.text('', 409)
-            # 发送 HUP
-            os.kill(proc.pid, signal.SIGHUP)
-            # clear
-            proc_info['history'] = []
-        # response
-        return response.text('')
-
-
-async def terminate_proc():
-    global proc
-    if proc:
-        logger.info('terminate: %s', proc)
+    def fn_on_terminated(_obj):
         try:
-            proc.terminate()
-        except ProcessLookupError as e:
-            proc = None
-            logger.error(
-                'ProcessLookupError when terminating %s: %s', proc, e)
-        else:
-            logger.info('terminate %s: waiting...', proc)
-            await proc.wait()
-            logger.info('terminate %s: ok. returncode=%s',
-                        proc, proc.returncode)
-            proc = None
-            proc_info = {}
+            del conversations[_obj.uid]
+        except KeyError:
+            pass
+
+    inter = Interactor(
+        obj.program, shlex.split(obj.args), obj.cwd,
+        started_condition=partial(fn_started_condition, obj),
+        on_started=partial(fn_on_started, obj),
+        on_terminated=partial(fn_on_terminated, obj),
+    )
+    conversations[uid] = (obj, inter)
+    try:
+        await inter.startup()
+    except:
+        del conversations[uid]
+        raise
+    else:
+        logger.info('%s: proc=%s', uid, inter.proc)
+        obj.pid = inter.proc.pid
+        return obj
+
+
+@app.get('/chat/{uid}', response_model=Conversation)
+def get(uid: UUID):
+    try:
+        obj, _ = conversations[uid]
+    except KeyError:
+        raise HTTPException(404)
+    else:
+        return obj
+
+
+@app.post('/chat/{uid}')
+async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
+    try:
+        _, inter = conversations[uid]
+    except KeyError:
+        raise HTTPException(404)
+    else:
+        output_line = await inter.interact(msg.text, timeout=timeout)
+        msg = output_line.lstrip('>').lstrip().lstrip('▁').lstrip()
+        return {
+            'msg': msg,
+            'time': datetime.now()
+        }
+
+
+@app.delete('/chat/{uid}')
+async def delete(uid: UUID):
+    try:
+        _, inter = conversations.pop(uid)
+    except KeyError:
+        raise HTTPException(404)
+    else:
+        inter.terminate()
+
+
+@app.get('/chat/{uid}/{name}')
+def get_attr(uid: UUID, name: str = None):
+    try:
+        obj, _ = conversations[uid]
+    except KeyError:
+        raise HTTPException(404)
+    else:
+        if name:
+            return obj['attr']
+        return getattr(obj, name)

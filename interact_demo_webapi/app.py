@@ -1,3 +1,3 @@
-from sanic import Sanic
+from fastapi import FastAPI
 
-app = Sanic(__name__)
+app = FastAPI()
