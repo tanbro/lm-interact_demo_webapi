@@ -46,17 +46,23 @@ class Index(HTTPMethodView):
             streams = proc.stdout, proc.stderr
             async with AioStreamsLineReader(streams) as reader:
                 async for line_pair in reader:
-                    for name, line in zip(('STDOUT', 'STDERR'), line_pair):
+                    for name, line in zip(('stdout', 'stderr'), line_pair):
                         if line is not None:
                             logger.info('%s %s: %s', proc, name, line)
                             # stdout, stderr 发送到浏览器
+                            data = '{}:{}'.format(name, line) + os.linesep
                             response_aws.append(asyncio.create_task(
-                                res.write(line + os.linesep)
+                                res.write(data)
                             ))
-                            if line == 'Started':
-                                started = True
+                            if not started:
+                                started = line.lower() == 'started'
                     if started:
-                        break
+                        # 认为启动成功，不再继续读取 std out/err。发送有用数据到浏览器
+                        data = 'id:{}'.format(proc.pid) + os.linesep
+                        response_aws.append(asyncio.create_task(
+                            res.write(data)
+                        ))
+                        break  
                 if reader.at_eof:
                     logger.error('%s: interact 进程已退出', proc)
                     await terminate_proc()
@@ -104,7 +110,7 @@ class Index(HTTPMethodView):
             # 等待启动
             logger.info('持续读取 %s 进程输出，等待其启动完毕 ..', proc)
             # Streaming 读取 stdout, stderr ...
-            return response.stream(stream_from_interact, headers={'X-PROCID': proc.pid})
+            return response.stream(stream_from_interact)
 
 
 class Input(HTTPMethodView):
@@ -127,7 +133,7 @@ class Input(HTTPMethodView):
                 return response.text('', 404)
             if not proc_info.get('started'):
                 return response.text('', 409)
-            logger.info('intput: %s\n\t%s', title, text)
+            logger.info('intput: %s\t%s', title, text)
             # 传到 interact 进程
             context_string = f'{title}<sep>{text}<sep><sep><|endoftext|>'
             data = (context_string + os.linesep).encode()
@@ -138,10 +144,10 @@ class Input(HTTPMethodView):
             streams = proc.stdout, proc.stderr
             async with AioStreamsLineReader(streams) as reader:
                 async for line_pair in reader:
-                    for name, line in zip(('STDOUT', 'STDERR'), line_pair):
+                    for name, line in zip(('stdout', 'stderr'), line_pair):
                         if line is not None:
                             logger.info('%s %s: %s', proc, name, line)
-                            if name == 'STDOUT':
+                            if name == 'stdout':
                                 answer = line
                     if answer is not None:
                         break

@@ -44,7 +44,8 @@ class Index(HTTPMethodView):
         global proc, proc_info
 
         program = app.config.chat_prog
-        args = shlex.split(app.config.chat_args)
+        _args = app.config.chat_args
+        args = shlex.split(_args)
         cwd = app.config.chat_pwd
 
         async def stream_from_interact(res):
@@ -55,18 +56,29 @@ class Index(HTTPMethodView):
             streams = proc.stdout, proc.stderr
             async with AioStreamsLineReader(streams) as reader:
                 async for line_pair in reader:
-                    for name, line in zip(('STDOUT', 'STDERR'), line_pair):
+                    for name, line in zip(('stdout', 'stderr'), line_pair):
                         if line is not None:
                             logger.info('%s %s: %s', proc, name, line)
-                            # stdout, stderr 发送到浏览器
+                            # 发送 stdout, stderr 到浏览器
+                            data = '{}:{}'.format(name, line) + os.linesep
                             response_aws.append(asyncio.create_task(
-                                res.write(line + os.linesep)
+                                res.write(data)
                             ))
                             # 收到第一个 stdout 认为启动成功！输出内容当作 personality
-                            if name == 'STDOUT':
-                                personality = line
+                            if name == 'stdout':
+                                personality = (
+                                    line
+                                    .lstrip('>').lstrip()
+                                    .lstrip('▁').lstrip()
+                                )
                     if personality:  # 认为启动成功！
-                        break
+                        # 发送有用数据到浏览器
+                        for k, v in zip(('id', 'personality'), (proc.pid, personality)):
+                            data = '{}:{}'.format(k, v) + os.linesep
+                            response_aws.append(asyncio.create_task(
+                                res.write(data)
+                            ))
+                        break  # 认为启动成功，不再继续读取 std out/err
                 if reader.at_eof:
                     logger.error('%s: interact 进程已退出', proc)
                     await terminate_proc()
@@ -76,14 +88,22 @@ class Index(HTTPMethodView):
                 proc, personality
             )
             proc_info.update({
-                'personality': personality.lstrip('>').lstrip().lstrip('▁').lstrip(),
+                'personality': personality,
                 'started': True,
             })
+            # 继续发送其它有的信息:
+            for k in ('args', 'cwd', 'program', ):
+                data = f'{k}:{proc_info.get(k, "")}' + os.linesep
+                response_aws.append(asyncio.create_task(
+                    res.write(data)
+                ))
             # 等待到浏览器发送完毕
             if response_aws:
                 _, pending = await asyncio.wait(response_aws, timeout=15)
-                for task in pending:
-                    task.cancel()
+                if pending:
+                    logger.warn('stream send task(s) timeout: %s', pending)
+                    for task in pending:
+                        task.cancel()
             # stream coroutine 结束
 
         if lock.locked():
@@ -108,6 +128,9 @@ class Index(HTTPMethodView):
             )
             logger.info('subprocess created: %s', proc)
             proc_info = {
+                'program': program,
+                'cwd': cwd,
+                'args': _args,
                 'personality': '',
                 'started': False,
                 'history': [],
@@ -115,7 +138,7 @@ class Index(HTTPMethodView):
             # 等待启动
             logger.info('持续读取 %s 进程输出，等待其启动完毕 ..', proc)
             # Streaming 读取 stdout, stderr ...
-            return response.stream(stream_from_interact, headers={'X-PROCID': proc.pid})
+            return response.stream(stream_from_interact)
 
 
 class Input(HTTPMethodView):
@@ -152,10 +175,10 @@ class Input(HTTPMethodView):
             streams = proc.stdout, proc.stderr
             async with AioStreamsLineReader(streams) as reader:
                 async for line_pair in reader:
-                    for name, line in zip(('STDOUT', 'STDERR'), (line_pair)):
+                    for name, line in zip(('stdout', 'stderr'), (line_pair)):
                         logger.info('%s: %s: %s', proc, name, line)
                         if line is not None:
-                            if name == 'STDOUT':
+                            if name == 'stdout':
                                 msg = line
                     if msg is not None:
                         break
@@ -194,6 +217,8 @@ class Clear(HTTPMethodView):
                 return response.text('', 409)
             # 发送 HUP
             os.kill(proc.pid, signal.SIGHUP)
+            # clear
+            proc_info['history'] = []
         # response
         return response.text('')
 

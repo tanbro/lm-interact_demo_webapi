@@ -15,10 +15,9 @@ def setup_cors_headers(request, response):
             response.headers.update({
                 'Access-Control-Allow-Origin': origin,
                 'Access-Control-Allow-Methods': 'OPTIONS, GET, POST',
-                'Access-Control-Allow-Headers': 'Content-Type, X-PROCID',
-                'Vary': 'Accept-Encoding',
+                'Access-Control-Allow-Headers': 'Content-Type',
             })
-        if not all_allowed:
-            response.headers.update({
-                'Vary': 'Accept-Encoding, Origin',
-            })
+            if not all_allowed:
+                response.headers.update({
+                    'Vary': 'Origin',
+                })
