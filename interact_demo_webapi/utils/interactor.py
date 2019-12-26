@@ -23,6 +23,7 @@ class Interactor:
         self._proc_args = proc_args or []
         self._proc = None
         self._proc_started = False
+        self._proc_terminated = False
         self._started_condition = started_condition
         self._on_started = on_started
         self._on_output = on_output
@@ -61,65 +62,77 @@ class Interactor:
 
         proc = self._proc
         logger = self._logger
+        at_eof = False
+        try:
 
-        while True:
-            aws = {
-                asyncio.create_task(self.read_line(stream, name_tag))
-                for name_tag, stream in [('stdout', proc.stdout), ('stderr', proc.stderr)]
-            }
-            done, pending = await asyncio.wait(aws, timeout=read_timeout, return_when=asyncio.FIRST_COMPLETED)
-            for task in pending:
-                task.cancel()
-            for task in done:
-                result = task.result()
-                data, name = result
-                if data == b'':  # EOF!
-                    break
-                line = data.decode(encoding).strip()
-                logger.debug('%s: %s: %s', self._proc, name, line)
-                if not self._proc_started:
-                    started = False
-                    func = self._started_condition
-                    if asyncio.iscoroutinefunction(func):
-                        started = await func(name, line)
-                    elif callable(func):
-                        started = func(name, line)
-                    self._proc_started = bool(started)
-                    if started:
-                        logger.info('%s: started', self._proc)
-                        func = self._on_started
+            while not at_eof:
+                aws = {
+                    asyncio.create_task(self.read_line(stream, name_tag))
+                    for name_tag, stream in [('stdout', proc.stdout), ('stderr', proc.stderr)]
+                }
+                done, pending = await asyncio.wait(aws, timeout=read_timeout, return_when=asyncio.FIRST_COMPLETED)
+                for task in pending:
+                    task.cancel()
+                for task in done:
+                    result = task.result()
+                    data, name = result
+                    at_eof = data == b''
+                    if at_eof:
+                        break
+                    line = data.decode(encoding).strip()
+                    logger.debug('%s: %s: %s', proc, name, line)
+                    if not self._proc_started:
+                        started = False
+                        func = self._started_condition
                         if asyncio.iscoroutinefunction(func):
-                            asyncio.create_task(func())
+                            started = await func(name, line)
                         elif callable(func):
-                            asyncio.get_event_loop().call_soon(func)
+                            started = func(name, line)
+                        self._proc_started = bool(started)
+                        if started:
+                            logger.info('%s: started', proc)
+                            func = self._on_started
+                            if asyncio.iscoroutinefunction(func):
+                                asyncio.create_task(func())
+                            elif callable(func):
+                                asyncio.get_event_loop().call_soon(func)
 
-                if self._proc_started:
-                    if callable(self._stdout_callback):
-                        self._stdout_callback(line)
+                    if self._proc_started:
+                        if name == 'stdout':
+                            func = self._stdout_callback
+                            if asyncio.iscoroutinefunction(func):
+                                await func(line)
+                            elif callable(func):
+                                func(line)
+                        # onOutput
+                        func = self._on_output
+                        if asyncio.iscoroutinefunction(func):
+                            asyncio.create_task(func(name, line))
+                        elif callable(func):
+                            asyncio.get_event_loop().call_soon(func, name, line)
 
-                func = self._on_output
-                if asyncio.iscoroutinefunction(func):
-                    asyncio.create_task(func(name, line))
-                elif callable(func):
-                    asyncio.get_event_loop().call_soon(func, name, line)
+            logger.warning('%s: terminated', proc)
+            func = self._on_terminated
+            if asyncio.iscoroutinefunction(func):
+                asyncio.create_task(func())
+            elif callable(func):
+                asyncio.get_event_loop().call_soon(func)
 
-        logger.warning('%s: terminated')
-        func = self._on_terminated
-        if asyncio.iscoroutinefunction(func):
-            asyncio.create_task(func())
-        elif callable(func):
-            asyncio.get_event_loop().call_soon(func)
+        except Exception as err:
+            logger.error('%s: %s', proc, err)
+            raise
+
+        finally:
+            self._proc_terminated = False
 
     async def interact(self, s: str, timeout=30, encoding=None) -> str:
         proc = self._proc
         logger = self._logger
 
         if not self._proc_started:
-            raise RuntimeError(
-                'Process %s started condition not matched',
-                proc
-            )
-        if self._input_lock.locked:
+            raise HTTPException(
+                status_code=409, detail='Process {} started condition not matched'.format(proc))
+        if self._input_lock.locked():
             raise HTTPException(status_code=409)
 
         logger.info('%s: input: %s', proc, s)
@@ -151,3 +164,15 @@ class Interactor:
     @property
     def started(self):
         return self._proc_started
+
+    @property
+    def terminated(self):
+        return self._proc_terminated
+
+    @property
+    def on_output(self, value):
+        return self._on_output
+
+    @on_output.setter
+    def on_output(self, value):
+        self._on_output = value

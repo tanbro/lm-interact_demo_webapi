@@ -1,5 +1,6 @@
 import asyncio.subprocess
 import logging
+import os
 import shlex
 from datetime import datetime
 from functools import partial
@@ -7,6 +8,8 @@ from typing import Dict, List, Tuple, Union
 from uuid import UUID, uuid1
 
 from fastapi import HTTPException
+from starlette.responses import PlainTextResponse, StreamingResponse
+from starlette.websockets import WebSocket
 
 from ..app import app
 from ..models.chat import Conversation, ConversationState, TextMessage
@@ -23,7 +26,7 @@ conversations: Dict[
 
 @app.get('/chat', response_model=List[Conversation])
 def list_():
-    return [i[0] for i in conversations]
+    return [v[0] for v in conversations.values()]
 
 
 @app.post('/chat', status_code=201, response_model=Conversation)
@@ -62,6 +65,7 @@ async def create(wait: float = 0):
 
     def fn_on_started(_obj):
         _obj.state = ConversationState.started
+        logging.getLogger(__name__).info('started: %s', _obj)
 
     def fn_on_terminated(_obj):
         try:
@@ -81,54 +85,70 @@ async def create(wait: float = 0):
     except:
         del conversations[uid]
         raise
-    else:
-        logger.info('%s: proc=%s', uid, inter.proc)
-        obj.pid = inter.proc.pid
-        return obj
+
+    logger.info('%s: proc=%s', uid, inter.proc)
+    obj.pid = inter.proc.pid
+    return obj
 
 
 @app.get('/chat/{uid}', response_model=Conversation)
 def get(uid: UUID):
     try:
-        obj, _ = conversations[uid]
+        obj, *_ = conversations[uid]
     except KeyError:
         raise HTTPException(404)
-    else:
-        return obj
+
+    return obj
 
 
 @app.post('/chat/{uid}')
 async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
     try:
-        _, inter = conversations[uid]
+        _, inter, *_ = conversations[uid]
     except KeyError:
         raise HTTPException(404)
-    else:
-        output_line = await inter.interact(msg.text, timeout=timeout)
-        msg = output_line.lstrip('>').lstrip().lstrip('▁').lstrip()
-        return {
-            'msg': msg,
-            'time': datetime.now()
-        }
+
+    output_line = await inter.interact(msg.text, timeout=timeout)
+    msg = output_line.lstrip('>').lstrip().lstrip('▁').lstrip()
+    return {
+        'msg': msg,
+        'time': datetime.now()
+    }
 
 
 @app.delete('/chat/{uid}')
 async def delete(uid: UUID):
     try:
-        _, inter = conversations.pop(uid)
+        _, inter, *_ = conversations.pop(uid)
     except KeyError:
         raise HTTPException(404)
-    else:
-        inter.terminate()
+
+    inter.terminate()
 
 
-@app.get('/chat/{uid}/{name}')
-def get_attr(uid: UUID, name: str = None):
+@app.websocket('/chat/{uid}/trace')
+async def ws_trace(websocket: WebSocket, uid: UUID):
     try:
-        obj, _ = conversations[uid]
+        _, inter, *_ = conversations[uid]
     except KeyError:
         raise HTTPException(404)
-    else:
-        if name:
-            return obj['attr']
-        return getattr(obj, name)
+
+    await websocket.accept()
+
+    queue = asyncio.Queue()
+
+    async def cb_output(q, k, v):
+        s = '{}:{}'.format(k, v)
+        await q.put(s)
+
+    try:
+        inter.on_output = partial(cb_output, queue)
+        while not iter.terminated:
+            task = asyncio.create_task(queue.get())
+            try:
+                txt = await asyncio.wait_for(task, timeout=1)
+            except asyncio.TimeoutError:
+                pass
+            await websocket.send_text(txt)
+    finally:
+        inter.on_output = None
