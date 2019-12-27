@@ -14,7 +14,7 @@ def env(s: str) -> str:
 
 
 class Settings(BaseSettings):
-    allow_origins: str = Field('', env=env('allow_origins'))
+    allow_origins: str = Field('*', env=env('allow_origins'))
     chat_program: str = Field(executable, env=env('chat_program'))
     chat_args: str = Field('', env=env('chat_args'))
     chat_cwd: str = Field(getcwd(), env=env('chat_cwd'))
