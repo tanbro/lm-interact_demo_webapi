@@ -17,6 +17,7 @@ from ..models.chat import (BaseMessage, Conversation, ConversationState,
                            MessageDirection, TextMessage)
 from ..settings import settings
 from ..utils.interactor import Interactor
+from time import time
 
 MAX_CONVERSATIONS = 1
 
@@ -165,29 +166,48 @@ async def delete_history(uid: UUID):
             del msg_list[0]
 
 
-@app.websocket('/chat/{uid}/trace')
-async def ws_trace(websocket: WebSocket, uid: UUID):
+@app.get('/chat/{uid}/trace')
+async def trace(uid: UUID, timeout:float=15):
+    """trace before started
+    """
     try:
         _, inter, *_ = conversations[uid]
     except KeyError:
         raise HTTPException(404)
 
-    await websocket.accept()
+    if inter.started:
+        raise HTTPException(409)
 
-    queue = asyncio.Queue()
+    async def generate_read(conv_uid, max_alive=15, wait_timeout=1):
+        def cb_output(q, *args):
+            q.put_nowait(args)
 
-    async def cb_output(q, k, v):
-        s = '{}:{}'.format(k, v)
-        await q.put(s)
+        ts = time()
+        queue = asyncio.Queue()
+        cb_output_func = partial(cb_output, queue)
 
-    try:
-        inter.on_output = partial(cb_output, queue)
-        while not iter.terminated:
-            task = asyncio.create_task(queue.get())
+        while time()-ts < max_alive:
             try:
-                txt = await asyncio.wait_for(task, timeout=1)
-            except asyncio.TimeoutError:
-                pass
-            await websocket.send_text(txt)
-    finally:
-        inter.on_output = None
+                _, inter, *_ = conversations[conv_uid]
+            except KeyError:
+                break
+            if inter.started:
+                break
+            if inter.terminated:
+                break
+            inter.on_output = cb_output_func
+            try:
+                task = asyncio.create_task(queue.get())
+                try:
+                    data = await asyncio.wait_for(task, timeout=wait_timeout)
+                except asyncio.TimeoutError:
+                    pass
+                else:
+                    name, txt = data
+                    yield '{}:{}{}'.format(name, txt, os.linesep)
+            finally:
+                inter.on_output = None
+
+    generator = generate_read(uid, timeout)
+    response = StreamingResponse(generator)
+    return response

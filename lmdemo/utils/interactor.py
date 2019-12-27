@@ -95,7 +95,7 @@ class Interactor:
                                 asyncio.create_task(func())
                             elif callable(func):
                                 asyncio.get_event_loop().call_soon(func)
-
+                    # 启动的回调函数
                     if self._proc_started:
                         if name == 'stdout':
                             func = self._stdout_callback
@@ -103,12 +103,12 @@ class Interactor:
                                 await func(line)
                             elif callable(func):
                                 func(line)
-                        # onOutput
-                        func = self._on_output
-                        if asyncio.iscoroutinefunction(func):
-                            asyncio.create_task(func(name, line))
-                        elif callable(func):
-                            asyncio.get_event_loop().call_soon(func, name, line)
+                    # onOutput 无论是否启动成功
+                    func = self._on_output
+                    if asyncio.iscoroutinefunction(func):
+                        asyncio.create_task(func(name, line))
+                    elif callable(func):
+                        asyncio.get_event_loop().call_soon(func, name, line)
 
         except Exception as err:
             logger.error('%s: %s', proc, err)
