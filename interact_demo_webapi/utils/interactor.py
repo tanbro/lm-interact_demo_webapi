@@ -64,7 +64,6 @@ class Interactor:
         logger = self._logger
         at_eof = False
         try:
-
             while not at_eof:
                 aws = {
                     asyncio.create_task(self.read_line(stream, name_tag))
@@ -111,19 +110,20 @@ class Interactor:
                         elif callable(func):
                             asyncio.get_event_loop().call_soon(func, name, line)
 
-            logger.warning('%s: terminated', proc)
-            func = self._on_terminated
-            if asyncio.iscoroutinefunction(func):
-                asyncio.create_task(func())
-            elif callable(func):
-                asyncio.get_event_loop().call_soon(func)
-
         except Exception as err:
             logger.error('%s: %s', proc, err)
             raise
 
         finally:
             self._proc_terminated = False
+            logger.warning('%s: terminated status_code=%s', proc, proc.status_code)
+
+        func = self._on_terminated
+        if asyncio.iscoroutinefunction(func):
+            asyncio.create_task(func())
+        elif callable(func):
+            asyncio.get_event_loop().call_soon(func)
+
 
     async def interact(self, s: str, timeout=30, encoding=None) -> str:
         proc = self._proc
@@ -156,6 +156,10 @@ class Interactor:
 
     def terminate(self):
         self._proc.terminate()
+
+    async def signal(self, sig):
+        async with self._input_lock:
+            os.kill(self._proc.pid, sig)
 
     @property
     def proc(self):

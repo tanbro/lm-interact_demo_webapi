@@ -2,25 +2,28 @@ import asyncio.subprocess
 import logging
 import os
 import shlex
+import signal
 from datetime import datetime
 from functools import partial
 from typing import Dict, List, Tuple, Union
 from uuid import UUID, uuid1
 
 from fastapi import HTTPException
-from starlette.responses import PlainTextResponse, StreamingResponse
+from starlette.responses import Response, StreamingResponse
 from starlette.websockets import WebSocket
 
 from ..app import app
-from ..models.chat import Conversation, ConversationState, TextMessage
+from ..models.chat import (BaseMessage, Conversation, ConversationState,
+                           MessageDirection, TextMessage)
 from ..settings import settings
 from ..utils.interactor import Interactor
 
 MAX_CONVERSATIONS = 1
 
+
 conversations: Dict[
     str,
-    Tuple[Conversation, Interactor]
+    Tuple[Conversation, Interactor, asyncio.Lock, List[BaseMessage]]
 ] = {}
 
 
@@ -79,12 +82,15 @@ async def create(wait: float = 0):
         on_started=partial(fn_on_started, obj),
         on_terminated=partial(fn_on_terminated, obj),
     )
-    conversations[uid] = (obj, inter)
-    try:
-        await inter.startup()
-    except:
-        del conversations[uid]
-        raise
+    lock = asyncio.Lock()
+    conversations[uid] = (obj, inter, lock, [])
+
+    async with lock:
+        try:
+            await inter.startup()
+        except:
+            del conversations[uid]
+            raise
 
     logger.info('%s: proc=%s', uid, inter.proc)
     obj.pid = inter.proc.pid
@@ -101,29 +107,62 @@ def get(uid: UUID):
     return obj
 
 
-@app.post('/chat/{uid}')
+@app.post('/chat/{uid}', response_model=TextMessage)
 async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
     try:
-        _, inter, *_ = conversations[uid]
+        _, inter, lock, msg_list, *_ = conversations[uid]
     except KeyError:
         raise HTTPException(404)
 
-    output_line = await inter.interact(msg.text, timeout=timeout)
-    msg = output_line.lstrip('>').lstrip().lstrip('▁').lstrip()
-    return {
-        'msg': msg,
-        'time': datetime.now()
-    }
+    msg.direction = MessageDirection.incoming
+    msg_list.append(msg)
+
+    async with lock:
+        out_txt = await inter.interact(msg.message, timeout=timeout)
+
+    out_txt = out_txt.lstrip('>').lstrip().lstrip('▁').lstrip()
+    out_msg = TextMessage(
+        direction=MessageDirection.outgoing,
+        message=out_txt,
+        time=datetime.now()
+    )
+    msg_list.append(out_msg)
+
+    return out_msg
 
 
 @app.delete('/chat/{uid}')
 async def delete(uid: UUID):
     try:
-        _, inter, *_ = conversations.pop(uid)
+        _, inter, lock, *_ = conversations.pop(uid)
     except KeyError:
         raise HTTPException(404)
 
-    inter.terminate()
+    async with lock:
+        inter.terminate()
+
+
+@app.get('/chat/{uid}/history', response_model=List[TextMessage])
+async def get_history(uid: UUID):
+    try:
+        _, _, _, msg_list, *_ = conversations[uid]
+    except KeyError:
+        raise HTTPException(404)
+
+    return msg_list
+
+
+@app.delete('/chat/{uid}/history')
+async def delete_history(uid: UUID):
+    try:
+        _, inter, lock, msg_list, *_ = conversations[uid]
+    except KeyError:
+        raise HTTPException(404)
+
+    async with lock:
+        inter.signal(signal.SIGHUP)
+        while msg_list:
+            del msg_list[0]
 
 
 @app.websocket('/chat/{uid}/trace')
