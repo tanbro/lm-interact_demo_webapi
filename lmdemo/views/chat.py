@@ -175,11 +175,11 @@ async def trace(uid: UUID, timeout: float = 15):
         raise HTTPException(404)
 
     if inter.started:
-        raise HTTPException(403, detail='backend process started already')
+        return Response(status_code=204)
     if inter.terminated:
         raise HTTPException(403, detail='backend process terminated')
 
-    async def generate_read(inter, max_alive=15, wait_timeout=1):
+    async def streaming(inter, max_alive=15, wait_timeout=1):
         ts = time()
         queue = asyncio.Queue()
 
@@ -201,6 +201,6 @@ async def trace(uid: UUID, timeout: float = 15):
         finally:
             inter.on_output = None
 
-    generator = generate_read(inter, timeout)
-    response = StreamingResponse(generator)
+    gen = streaming(inter, timeout)
+    response = StreamingResponse(gen, status_code=206, media_type="text/plain")
     return response

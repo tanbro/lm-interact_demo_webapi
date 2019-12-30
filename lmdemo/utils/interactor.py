@@ -139,8 +139,8 @@ class Interactor:
 
         finally:
             self._proc_terminated = False
-            logger.warning('%s: terminated status_code=%s',
-                           proc, proc.status_code)
+            logger.warning('%s: terminated(returncode=%s)',
+                           proc, proc.returncode)
 
         func = self._on_terminated
         if asyncio.iscoroutinefunction(func):
