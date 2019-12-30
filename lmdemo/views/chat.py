@@ -36,7 +36,7 @@ def list_():
 async def create(wait: float = 0):
     if len(conversations) >= MAX_CONVERSATIONS:
         raise HTTPException(
-            status_code=409,
+            status_code=403,
             detail='Max length of conversations reached: {}'.format(
                 MAX_CONVERSATIONS)
         )
@@ -102,7 +102,7 @@ def get(uid: UUID):
     try:
         obj, *_ = conversations[uid]
     except KeyError:
-        raise HTTPException(404)
+        raise HTTPException(403)
 
     return obj
 
@@ -175,27 +175,21 @@ async def trace(uid: UUID, timeout: float = 15):
         raise HTTPException(404)
 
     if inter.started:
-        raise HTTPException(409)
+        raise HTTPException(403, detail='backend process started already')
+    if inter.terminated:
+        raise HTTPException(403, detail='backend process terminated')
 
-    async def generate_read(conv_uid, max_alive=15, wait_timeout=1):
-        def cb_output(q, *args):
-            q.put_nowait(args)
-
+    async def generate_read(inter, max_alive=15, wait_timeout=1):
         ts = time()
         queue = asyncio.Queue()
-        cb_output_func = partial(cb_output, queue)
 
-        while time()-ts < max_alive:
-            try:
-                _, inter, *_ = conversations[conv_uid]
-            except KeyError:
-                break
-            if inter.started:
-                break
-            if inter.terminated:
-                break
-            inter.on_output = cb_output_func
-            try:
+        inter.on_output = lambda k, v: queue.put_nowait((k, v))
+        try:
+            while (
+                time()-ts < max_alive
+                and not inter.started
+                and not inter.terminated
+            ):
                 task = asyncio.create_task(queue.get())
                 try:
                     data = await asyncio.wait_for(task, timeout=wait_timeout)
@@ -204,9 +198,9 @@ async def trace(uid: UUID, timeout: float = 15):
                 else:
                     name, txt = data
                     yield '{}:{}{}'.format(name, txt, os.linesep)
-            finally:
-                inter.on_output = None
+        finally:
+            inter.on_output = None
 
-    generator = generate_read(uid, timeout)
+    generator = generate_read(inter, timeout)
     response = StreamingResponse(generator)
     return response

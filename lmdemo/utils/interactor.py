@@ -2,9 +2,32 @@ import asyncio.subprocess
 import logging
 import os
 from locale import getpreferredencoding
-from typing import Callable, Coroutine, List, Optional, Union
+from typing import (Any, Awaitable, Callable, Coroutine, List, Optional,
+                    TypeVar, Union)
 
 from fastapi import HTTPException
+
+# 同步或者异步的回调类型
+Callback = TypeVar('Callback',
+                   Callable[..., Any],
+                   Callable[..., Awaitable[Any]],
+                   None)
+
+
+OnStartedCallback = TypeVar('OnStartedCallback',
+                            Callable[[], None],
+                            Callable[[], Awaitable[None]],
+                            None)
+
+StartedConditionCallback = TypeVar('StartedConditionCallback',
+                                   Callable[[str, str], bool],
+                                   Callable[[str, str], Awaitable[bool]],
+                                   None)
+
+OnOutputCallback = TypeVar('OnOutputCallback',
+                           Callable[[str, str], None],
+                           Callable[[str, str], Awaitable[None]],
+                           None)
 
 
 class Interactor:
@@ -12,10 +35,10 @@ class Interactor:
                  proc_program: str,
                  proc_args: Optional[List[str]] = None,
                  proc_cwd: str = '',
-                 started_condition=None,
-                 on_started=None,
-                 on_output=None,
-                 on_terminated=None,
+                 started_condition: StartedConditionCallback = None,
+                 on_started: OnStartedCallback = None,
+                 on_output: OnOutputCallback = None,
+                 on_terminated: Callback = None,
                  ):
         self._logger = logging.getLogger(self.__class__.__qualname__)
         self._proc_program = proc_program
@@ -116,14 +139,14 @@ class Interactor:
 
         finally:
             self._proc_terminated = False
-            logger.warning('%s: terminated status_code=%s', proc, proc.status_code)
+            logger.warning('%s: terminated status_code=%s',
+                           proc, proc.status_code)
 
         func = self._on_terminated
         if asyncio.iscoroutinefunction(func):
             asyncio.create_task(func())
         elif callable(func):
             asyncio.get_event_loop().call_soon(func)
-
 
     async def interact(self, s: str, timeout=30, encoding=None) -> str:
         proc = self._proc
