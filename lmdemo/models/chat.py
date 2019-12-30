@@ -6,18 +6,10 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
-class ConversationState(str, Enum):
-    pending = 'pending'
-    started = 'started'
-    terminated = 'terminated'
+from .backend import Backend
 
-class Conversation(BaseModel):
-    uid: UUID
-    state: ConversationState = ConversationState.pending
-    pid: int = 0
-    program: str = ''
-    args: str = ''
-    cwd: str = ''
+
+class ChatBackend(Backend):
     personality: str = ''
 
 
@@ -31,6 +23,7 @@ class BaseMessage(BaseModel):
     message: Any = Field(...)
     direction: MessageDirection = MessageDirection.incoming
     time: datetime = None
+
 
 class TextMessage(BaseMessage):
     type: str = 'text'

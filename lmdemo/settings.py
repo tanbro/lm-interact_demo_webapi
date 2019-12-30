@@ -15,9 +15,13 @@ def env(s: str) -> str:
 
 class Settings(BaseSettings):
     allow_origins: str = Field('*', env=env('allow_origins'))
+
     chat_program: str = Field(executable, env=env('chat_program'))
     chat_args: str = Field('', env=env('chat_args'))
     chat_cwd: str = Field(getcwd(), env=env('chat_cwd'))
 
+    qa_program: str = Field(executable, env=env('qa_program'))
+    qa_args: str = Field('', env=env('qa_args'))
+    qa_cwd: str = Field(getcwd(), env=env('qa_cwd'))
 
 settings = Settings()

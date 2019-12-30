@@ -1,181 +1,98 @@
+from uuid import uuid1
 import asyncio
-import os
-import shlex
-import signal
-from datetime import datetime
+import logging
 
-from sanic import Sanic, response
-from sanic.exceptions import abort
-from sanic.log import logger
-from sanic.views import HTTPMethodView
+from starlette.exceptions import HTTPException
+from starlette.responses import Response
 
 from ..app import app
-from ..helpers.aiostreamslinereader import AioStreamsLineReader
+from ..models.backend import Backend, BackendState
+from ..models.qa import Answer, Question
+from ..settings import settings
+from ..utils.interactor import Interactor
+import shlex
 
-proc: asyncio.subprocess.Process = None
-lock = asyncio.Lock()
-proc_info = {}
+MAX_BACKENDS = 1
+
+backends: Dict[
+    str,
+    Tuple[Backend, Interactor, asyncio.Lock]
+] = {}
+
+backends_lock = asyncio.Lock()
 
 
-class Index(HTTPMethodView):
+@app.get('/qa', response_model=List[Backend])
+def list_():
+    return [v[0] for v in backends.values()]
 
-    def options(self, request):
-        return response.raw(b'')
 
-    def get(self, request):
-        # List
-        if proc:
-            d = {'id': proc.pid}
-            d.update(proc_info)
-            return response.json([d])
-        return response.json([])
+@app.post('/qa', status_code=201, response_model=Backend)
+async def create(wait: float = 0):
+    logger = logging.getLogger(__name__)
 
-    async def post(self, request):
-        global proc, proc_info
+    def fn_con_started(output_file: str, output_text: str) -> bool:
+        return output_text.strip().lower().startswith('ready')
 
-        program = app.config.qa_prog
-        _args = app.config.qa_args
-        args = shlex.split(_args)
-        cwd = app.config.qa_pwd
+    async def fn_on_terminate(uid):
+        logger = logging.getLogger(__name__)
+        logger.warning('QA backend terminated')
+        async with backends_lock:
+            try:
+                del backends[uid]
+            except KeyError:
+                pass
 
-        async def stream_from_interact(res):
-            global proc_info
-            started = False
-            response_aws = []
-            # 读 interact 进程输出
-            streams = proc.stdout, proc.stderr
-            async with AioStreamsLineReader(streams) as reader:
-                async for line_pair in reader:
-                    for name, line in zip(('stdout', 'stderr'), line_pair):
-                        if line is not None:
-                            logger.info('%s %s: %s', proc, name, line)
-                            # stdout, stderr 发送到浏览器
-                            data = '{}:{}'.format(name, line) + os.linesep
-                            response_aws.append(asyncio.create_task(
-                                res.write(data)
-                            ))
-                            if not started:
-                                started = line.lower() == 'started'
-                    if started:
-                        # 认为启动成功，不再继续读取 std out/err。发送有用数据到浏览器
-                        data = 'id:{}'.format(proc.pid) + os.linesep
-                        response_aws.append(asyncio.create_task(
-                            res.write(data)
-                        ))
-                        break  
-                if reader.at_eof:
-                    logger.error('%s: interact 进程已退出', proc)
-                    await terminate_proc()
-                    abort(500)
-            proc_info.update({'started': True})
-            logger.info(
-                '%s 启动成功',
-                proc
+    async with backends_lock:
+        if len(backends) >= MAX_BACKENDS:
+            raise HTTPException(
+                status_code=403,
+                detail='Max length of backends reached: {}'.format(
+                    MAX_BACKENDS)
             )
+        uid = uuid1()
+        backend = Backend(
+            uid=uid,
+            program=settings.qa_program,
+            args=settings.qa_args,
+            cwd=settings.qa_cwd
+        )
+        logger.info('create QA backend: %s', backend)
 
-            # 等待到浏览器发送完毕
-            if response_aws:
-                _, pending = await asyncio.wait(response_aws, timeout=15)
-                for task in pending:
-                    task.cancel()
-            # stream coroutine 结束
+        interactor = Interactor(
+            backend.program, shlex.split(backend.args), backend.cwd,
+            started_condition=fn_con_started,
+            on_terminated=lambda: fn_on_terminate(uid),
+        )
+        lock = asyncio.Lock()
+        backends[uid] = (backend, interactor, lock)
+        await interactor.startup()
 
-        if lock.locked():
-            return response.text('', 409)
-
-        async with lock:
-            # 首先关闭
-            await terminate_proc()
-
-            # 然后新建
-            logger.info(
-                'create subprocess: program=%s, args=%s, cwd=%s',
-                program, args, cwd
-            )
-            proc = await asyncio.create_subprocess_exec(
-                program,
-                *args,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd
-            )
-            logger.info('subprocess created: %s', proc)
-            proc_info = {
-                'program': program,
-                'cwd': cwd,
-                'args': _args,
-                'started': False,
-            }
-            # 等待启动
-            logger.info('持续读取 %s 进程输出，等待其启动完毕 ..', proc)
-            # Streaming 读取 stdout, stderr ...
-            return response.stream(stream_from_interact)
+    return Response()
 
 
-class Input(HTTPMethodView):
-    def options(self, request, id_):
-        return response.raw(b'')
-
-    async def post(self, request, id_):
-        if lock.locked():
-            return response.text('', 409)
-        # 用户输入
-        title = request.json['title'].strip()
-        text = request.json['text'].strip()
-        if (not title) and (not text):
-            return response.text('', 400)
-        # interact 进程交互
-        async with lock:
-            if not proc:
-                return response.text('', 404)
-            if proc.pid != id_:
-                return response.text('', 404)
-            if not proc_info.get('started'):
-                return response.text('', 409)
-            logger.info('intput: %s\t%s', title, text)
-            # 传到 interact 进程
-            context_string = f'{title}<sep>{text}<sep><sep><|endoftext|>'
-            data = (context_string + os.linesep).encode()
-            proc.stdin.write(data)
-            await proc.stdin.drain()
-            # 读取 interact 进程 的 stdout/stderr 输出
-            answer = None
-            streams = proc.stdout, proc.stderr
-            async with AioStreamsLineReader(streams) as reader:
-                async for line_pair in reader:
-                    for name, line in zip(('stdout', 'stderr'), line_pair):
-                        if line is not None:
-                            logger.info('%s %s: %s', proc, name, line)
-                            if name == 'stdout':
-                                answer = line
-                    if answer is not None:
-                        break
-                if reader.at_eof:
-                    logger.error('%s: interact 进程已退出', proc)
-                    await terminate_proc()
-                    abort(500)
-            # response
-            answer = answer.lstrip('>').lstrip()
-            return response.json({
-                'answer': answer,
-            })
+@app.get('/qa/{uid}', response_model=Backend)
+def get(uid: UUID):
+    try:
+        obj, *_ = backends[uid]
+    except KeyError:
+        raise HTTPException(403)
+    return obj
 
 
-async def terminate_proc():
-    global proc
-    if proc:
-        logger.info('terminate: %s', proc)
-        try:
-            proc.terminate()
-        except ProcessLookupError as e:
-            proc = None
-            logger.error(
-                'ProcessLookupError when terminating %s: %s', proc, e)
-        else:
-            logger.info('terminate %s: waiting...', proc)
-            await proc.wait()
-            logger.info('terminate %s: ok. returncode=%s',
-                        proc, proc.returncode)
-            proc = None
-            proc_info = {}
+@app.post('/qa/{uid}', response_model=Answer)
+async def interact(uid: UUID, item: Question, timeout: float = 15):
+    try:
+        _, interactor, lock, *_ = backends[uid]
+    except KeyError:
+        raise HTTPException(404)
+
+    in_txt = '{title}<sep>{text}<sep><sep><|endoftext|>'.format(item.dict())
+
+    async with lock:
+        out_txt = await interactor.interact(in_txt, timeout=timeout)
+
+    out_txt = out_txt.lstrip('>').lstrip().lstrip('▁').lstrip()
+    answer = Answer(text=out_txt)
+
+    return answer

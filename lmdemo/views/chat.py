@@ -5,6 +5,7 @@ import shlex
 import signal
 from datetime import datetime
 from functools import partial
+from time import time
 from typing import Dict, List, Tuple, Union
 from uuid import UUID, uuid1
 
@@ -12,48 +13,46 @@ from fastapi import HTTPException
 from starlette.responses import Response, StreamingResponse
 
 from ..app import app
-from ..models.chat import (BaseMessage, Conversation, ConversationState,
-                           MessageDirection, TextMessage)
+from ..models.backend import BackendState
+from ..models.chat import (BaseMessage, ChatBackend, MessageDirection,
+                           TextMessage)
 from ..settings import settings
 from ..utils.interactor import Interactor
-from time import time
 
-MAX_CONVERSATIONS = 1
+MAX_BACKENDS = 1
 
 
-conversations: Dict[
+backends: Dict[
     str,
-    Tuple[Conversation, Interactor, asyncio.Lock, List[BaseMessage]]
+    Tuple[ChatBackend, Interactor, asyncio.Lock, List[BaseMessage]]
 ] = {}
 
 
-@app.get('/chat', response_model=List[Conversation])
+@app.get('/chat', response_model=List[ChatBackend])
 def list_():
-    return [v[0] for v in conversations.values()]
+    return [v[0] for v in backends.values()]
 
 
-@app.post('/chat', status_code=201, response_model=Conversation)
-async def create(wait: float = 0):
-    if len(conversations) >= MAX_CONVERSATIONS:
+@app.post('/chat', status_code=201, response_model=ChatBackend)
+async def create():
+    logger = logging.getLogger('__name__')
+
+    if len(backends) >= MAX_BACKENDS:
         raise HTTPException(
             status_code=403,
-            detail='Max length of conversations reached: {}'.format(
-                MAX_CONVERSATIONS)
+            detail='Max length of backends reached: {}'.format(
+                MAX_BACKENDS)
         )
-
-    logger = logging.getLogger('{}.create'.format(__name__))
-
-    # todo: 关闭现有！
 
     # 新建聊天进程
     uid = uuid1()
-    obj = Conversation(
+    obj = ChatBackend(
         uid=uid,
         program=settings.chat_program,
         args=settings.chat_args,
         cwd=settings.chat_cwd
     )
-    logger.info('%s', obj)
+    logger.info('create Chat backend: %s', obj)
 
     def fn_started_condition(_obj, _name, _line):
         if _name.strip().lower() == 'stdout':
@@ -67,12 +66,12 @@ async def create(wait: float = 0):
         return False
 
     def fn_on_started(_obj):
-        _obj.state = ConversationState.started
+        _obj.state = BackendState.started
         logging.getLogger(__name__).info('started: %s', _obj)
 
     def fn_on_terminated(_obj):
         try:
-            del conversations[_obj.uid]
+            del backends[_obj.uid]
         except KeyError:
             pass
 
@@ -83,13 +82,13 @@ async def create(wait: float = 0):
         on_terminated=partial(fn_on_terminated, obj),
     )
     lock = asyncio.Lock()
-    conversations[uid] = (obj, inter, lock, [])
+    backends[uid] = (obj, inter, lock, [])
 
     async with lock:
         try:
             await inter.startup()
         except:
-            del conversations[uid]
+            del backends[uid]
             raise
 
     logger.info('%s: proc=%s', uid, inter.proc)
@@ -97,10 +96,10 @@ async def create(wait: float = 0):
     return obj
 
 
-@app.get('/chat/{uid}', response_model=Conversation)
+@app.get('/chat/{uid}', response_model=ChatBackend)
 def get(uid: UUID):
     try:
-        obj, *_ = conversations[uid]
+        obj, *_ = backends[uid]
     except KeyError:
         raise HTTPException(403)
 
@@ -110,7 +109,7 @@ def get(uid: UUID):
 @app.post('/chat/{uid}', response_model=TextMessage)
 async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
     try:
-        _, inter, lock, msg_list, *_ = conversations[uid]
+        _, inter, lock, msg_list, *_ = backends[uid]
     except KeyError:
         raise HTTPException(404)
 
@@ -134,7 +133,7 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
 @app.delete('/chat/{uid}')
 async def delete(uid: UUID):
     try:
-        _, inter, lock, *_ = conversations.pop(uid)
+        _, inter, lock, *_ = backends.pop(uid)
     except KeyError:
         raise HTTPException(404)
 
@@ -145,7 +144,7 @@ async def delete(uid: UUID):
 @app.get('/chat/{uid}/history', response_model=List[TextMessage])
 async def get_history(uid: UUID):
     try:
-        _, _, _, msg_list, *_ = conversations[uid]
+        _, _, _, msg_list, *_ = backends[uid]
     except KeyError:
         raise HTTPException(404)
 
@@ -155,7 +154,7 @@ async def get_history(uid: UUID):
 @app.delete('/chat/{uid}/history')
 async def delete_history(uid: UUID):
     try:
-        _, inter, lock, msg_list, *_ = conversations[uid]
+        _, inter, lock, msg_list, *_ = backends[uid]
     except KeyError:
         raise HTTPException(404)
 
@@ -170,7 +169,7 @@ async def trace(uid: UUID, timeout: float = 15):
     """trace before started
     """
     try:
-        _, inter, *_ = conversations[uid]
+        _, inter, *_ = backends[uid]
     except KeyError:
         raise HTTPException(404)
 
