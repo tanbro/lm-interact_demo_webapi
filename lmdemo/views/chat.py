@@ -10,7 +10,6 @@ from uuid import UUID, uuid1
 
 from fastapi import HTTPException
 from starlette.responses import Response, StreamingResponse
-from starlette.websockets import WebSocket
 
 from ..app import app
 from ..models.chat import (BaseMessage, Conversation, ConversationState,
@@ -167,7 +166,7 @@ async def delete_history(uid: UUID):
 
 
 @app.get('/chat/{uid}/trace')
-async def trace(uid: UUID, timeout:float=15):
+async def trace(uid: UUID, timeout: float = 15):
     """trace before started
     """
     try:
