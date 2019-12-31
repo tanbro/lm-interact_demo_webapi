@@ -7,9 +7,9 @@ from pydantic import BaseModel, Field
 
 
 class Question(BaseModel):
-    title: str = Field(..., max_length=64)
-    text: str = Field(..., max_length=256)
+    title: str = Field(..., max_length=256)
+    text: str = Field(..., max_length=512)
 
 
-class Answer(str, Enum):
-    text: str
+class Answer(BaseModel):
+    text: str = Field(...)

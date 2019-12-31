@@ -106,35 +106,53 @@ class Interactor:
                     if not self._proc_started:
                         started = False
                         func = self._started_condition
-                        if asyncio.iscoroutinefunction(func):
-                            started = await func(name, line)
-                        elif callable(func):
-                            started = func(name, line)
+                        if func:
+                            if asyncio.iscoroutinefunction(func):
+                                started = await func(name, line)
+                            elif callable(func):
+                                started = func(name, line)
+                            else:
+                                raise RuntimeError(
+                                    'Wrong `started_condition` type: %r', func)
                         self._proc_started = bool(started)
                         if started:
                             logger.info('%s: started', proc)
                             func = self._on_started
-                            if asyncio.iscoroutinefunction(func):
-                                asyncio.create_task(func())
-                            elif callable(func):
-                                asyncio.get_event_loop().call_soon(func)
+                            if func:
+                                if asyncio.iscoroutine(func):
+                                    asyncio.create_task(func)
+                                elif asyncio.iscoroutinefunction(func):
+                                    asyncio.create_task(func())
+                                elif callable(func):
+                                    asyncio.get_event_loop().call_soon(func)
+                                else:
+                                    raise RuntimeError(
+                                        'Wrong `on_started` type: %r', func)
                     # 启动的回调函数
                     if self._proc_started:
                         if name == 'stdout':
                             func = self._stdout_callback
-                            if asyncio.iscoroutinefunction(func):
-                                await func(line)
-                            elif callable(func):
-                                func(line)
+                            if func:
+                                if asyncio.iscoroutinefunction(func):
+                                    await func(line)
+                                elif callable(func):
+                                    func(line)
+                                else:
+                                    raise RuntimeError(
+                                        'Wrong `stdout_callback` type: %r', func)
                     # onOutput 无论是否启动成功
                     func = self._on_output
-                    if asyncio.iscoroutinefunction(func):
-                        asyncio.create_task(func(name, line))
-                    elif callable(func):
-                        asyncio.get_event_loop().call_soon(func, name, line)
+                    if func:
+                        if asyncio.iscoroutinefunction(func):
+                            asyncio.create_task(func(name, line))
+                        elif callable(func):
+                            asyncio.get_event_loop().call_soon(func, name, line)
+                        else:
+                            raise RuntimeError(
+                                'Wrong `on_output` type: %r', func)
 
         except Exception as err:
-            logger.error('%s: %s', proc, err)
+            logger.exception('%s: monitor: %s', proc, err)
             raise
 
         finally:
@@ -143,39 +161,58 @@ class Interactor:
                            proc, proc.returncode)
 
         func = self._on_terminated
-        if asyncio.iscoroutinefunction(func):
-            asyncio.create_task(func())
-        elif callable(func):
-            asyncio.get_event_loop().call_soon(func)
+        if func:
+            if asyncio.iscoroutinefunction(func):
+                asyncio.create_task(func())
+            elif callable(func):
+                asyncio.get_event_loop().call_soon(func)
+            else:
+                raise RuntimeError('Wrong `on_terminated` type: %r', func)
 
-    async def interact(self, s: str, timeout=30, encoding=None) -> str:
+    async def interact(self, input_text: str, timeout=30, encoding=None) -> str:
         proc = self._proc
         logger = self._logger
+        lock = self._input_lock
 
-        if not self._proc_started:
+        if not self.started:
             raise HTTPException(
                 status_code=409, detail='Process {} started condition not matched'.format(proc))
-        if self._input_lock.locked():
+        if lock.locked():
             raise HTTPException(status_code=409)
 
-        logger.info('%s: input: %s', proc, s)
-
+        logger.debug('%s: interact: input: %s', proc, input_text)
         encoding = encoding or getpreferredencoding()
-        data = (s.strip() + os.linesep).encode(encoding)
-        fut = asyncio.Future()
+        input_data = '{0}{1}'.format(
+            input_text.strip(), os.linesep).encode(encoding)
 
-        def cb_stdout(_line):
-            fut.set_result(_line.strip())
+        try:
+            async with lock:
+                output_future = asyncio.get_event_loop().create_future()
+                self._stdout_callback = lambda x: (
+                    output_future.set_result(x.strip())
+                )
+                try:
+                    proc.stdin.write(input_data)
+                    aws = (
+                        proc.stdin.drain(),
+                        output_future
+                    )
+                    _, pending = await asyncio.wait(aws, timeout=timeout)
+                    if pending:
+                        for task in pending:
+                            task.cancel()
+                        raise RuntimeError(
+                            'streaming i/o tasks can not be done: %r', pending)
+                finally:
+                    self._stdout_callback = None
 
-        async with self._input_lock:
-            self._stdout_callback = cb_stdout
-            try:
-                proc.stdin.write(data)
-                await proc.stdin.drain()
-                await asyncio.wait_for(fut, timeout)
-            finally:
-                self._stdout_callback = None
-        return fut.result()
+            output_text = output_future.result()
+        except Exception as err:
+            logger.exception('%s: interact: %s', proc, err)
+            raise
+
+        logger.debug('%s: interact: output: %s', proc, output_text)
+        return output_text
 
     def terminate(self):
         self._proc.terminate()

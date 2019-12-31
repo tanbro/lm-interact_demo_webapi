@@ -1,6 +1,8 @@
-from uuid import uuid1
 import asyncio
 import logging
+import shlex
+from typing import Dict, List, Tuple
+from uuid import UUID, uuid1
 
 from starlette.exceptions import HTTPException
 from starlette.responses import Response
@@ -10,7 +12,6 @@ from ..models.backend import Backend, BackendState
 from ..models.qa import Answer, Question
 from ..settings import settings
 from ..utils.interactor import Interactor
-import shlex
 
 MAX_BACKENDS = 1
 
@@ -31,12 +32,19 @@ def list_():
 async def create(wait: float = 0):
     logger = logging.getLogger(__name__)
 
-    def fn_con_started(output_file: str, output_text: str) -> bool:
-        return output_text.strip().lower().startswith('ready')
+    def func_started_cond(output_file: str, output_text: str) -> bool:
+        return output_text.strip().lower().startswith('started')
 
-    async def fn_on_terminate(uid):
+    async def coro_on_started(uid):
         logger = logging.getLogger(__name__)
-        logger.warning('QA backend terminated')
+        logger.info('QA backend started: %s', uid)
+        backend, _, lock, *_ = backends[uid]
+        async with lock:
+            backend.state = BackendState.started
+
+    async def coro_on_terminated(uid):
+        logger = logging.getLogger(__name__)
+        logger.warning('QA backend terminated: %s', uid)
         async with backends_lock:
             try:
                 del backends[uid]
@@ -61,14 +69,15 @@ async def create(wait: float = 0):
 
         interactor = Interactor(
             backend.program, shlex.split(backend.args), backend.cwd,
-            started_condition=fn_con_started,
-            on_terminated=lambda: fn_on_terminate(uid),
+            started_condition=func_started_cond,
+            on_started=coro_on_started(uid),
+            on_terminated=coro_on_terminated(uid),
         )
         lock = asyncio.Lock()
         backends[uid] = (backend, interactor, lock)
         await interactor.startup()
 
-    return Response()
+    return backend
 
 
 @app.get('/qa/{uid}', response_model=Backend)
@@ -83,16 +92,18 @@ def get(uid: UUID):
 @app.post('/qa/{uid}', response_model=Answer)
 async def interact(uid: UUID, item: Question, timeout: float = 15):
     try:
-        _, interactor, lock, *_ = backends[uid]
+        backend, interactor, lock, *_ = backends[uid]
     except KeyError:
         raise HTTPException(404)
 
-    in_txt = '{title}<sep>{text}<sep><sep><|endoftext|>'.format(item.dict())
-
     async with lock:
+        if backend.state != BackendState.started:
+            raise HTTPException(
+                403, 'Invalid backend state "{}"'.format(backend.state))
+        in_txt = '{title}<sep>{text}<sep><sep><|endoftext|>'.format(
+            **item.dict())
         out_txt = await interactor.interact(in_txt, timeout=timeout)
-
-    out_txt = out_txt.lstrip('>').lstrip().lstrip('▁').lstrip()
-    answer = Answer(text=out_txt)
+        out_txt = out_txt.lstrip('>').lstrip().lstrip('▁').lstrip()
+        answer = Answer(text=out_txt)
 
     return answer

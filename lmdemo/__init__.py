@@ -1,6 +1,6 @@
 from .app import app
+from .views import chat, qa
 
-from .views import chat
 
 @app.get("/")
 def root():
