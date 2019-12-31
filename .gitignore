@@ -1,6 +1,7 @@
 /*.py
 !/setup.py
 /.env.*
+/config/
 
 
 # Byte-compiled / optimized / DLL files
