@@ -189,9 +189,8 @@ async def trace(uid: UUID, timeout: float = 15):
                 and not inter.started
                 and not inter.terminated
             ):
-                task = asyncio.create_task(queue.get())
                 try:
-                    data = await asyncio.wait_for(task, timeout=wait_timeout)
+                    data = await asyncio.wait_for(queue.get(), timeout=wait_timeout)
                 except asyncio.TimeoutError:
                     pass
                 else:

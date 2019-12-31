@@ -1,11 +1,13 @@
 import asyncio
 import logging
+import os
 import shlex
+from time import time
 from typing import Dict, List, Tuple
 from uuid import UUID, uuid1
 
 from starlette.exceptions import HTTPException
-from starlette.responses import Response
+from starlette.responses import Response, StreamingResponse
 
 from ..app import app
 from ..models.backend import Backend, BackendState
@@ -81,20 +83,22 @@ async def create(wait: float = 0):
 
 
 @app.get('/qa/{uid}', response_model=Backend)
-def get(uid: UUID):
-    try:
-        obj, *_ = backends[uid]
-    except KeyError:
-        raise HTTPException(403)
-    return obj
+async def get(uid: UUID):
+    async with backends_lock:
+        try:
+            obj, *_ = backends[uid]
+        except KeyError:
+            raise HTTPException(403)
+        return obj
 
 
 @app.post('/qa/{uid}', response_model=Answer)
 async def interact(uid: UUID, item: Question, timeout: float = 15):
-    try:
-        backend, interactor, lock, *_ = backends[uid]
-    except KeyError:
-        raise HTTPException(404)
+    async with backends_lock:
+        try:
+            backend, interactor, lock, *_ = backends[uid]
+        except KeyError:
+            raise HTTPException(404)
 
     async with lock:
         if backend.state != BackendState.started:
@@ -107,3 +111,57 @@ async def interact(uid: UUID, item: Question, timeout: float = 15):
         answer = Answer(text=out_txt)
 
     return answer
+
+
+@app.delete('/qa/{uid}')
+async def delete(uid: UUID):
+    async with backends_lock:
+        try:
+            _, interactor, lock, *_ = backends.pop(uid)
+        except KeyError:
+            raise HTTPException(404)
+
+    async with lock:
+        interactor.terminate()
+
+
+@app.get('/chat/{uid}/trace')
+async def trace(uid: UUID, timeout: float = 15):
+    """trace before started
+    """
+    async with backends_lock:
+        try:
+            backend, interactor, lock, *_ = backends[uid]
+        except KeyError:
+            raise HTTPException(404)
+
+        if interactor.started:
+            return Response(status_code=204)
+        if interactor.terminated:
+            raise HTTPException(403, detail='backend process terminated')
+
+    async def streaming(inter, max_alive=15, read_timeout=1):
+        ts = time()
+        queue = asyncio.Queue()
+
+        inter.on_output = lambda k, v: queue.put_nowait((k, v))
+        try:
+            while (
+                time()-ts < max_alive
+                and not inter.started
+                and not inter.terminated
+            ):
+                try:
+                    data = await asyncio.wait_for(queue.get(), timeout=read_timeout)
+                except asyncio.TimeoutError:
+                    pass
+                else:
+                    name, txt = data
+                    yield '{}:{}{}'.format(name, txt, os.linesep)
+        finally:
+            inter.on_output = None
+
+    coro = streaming(interactor, timeout)
+    response = StreamingResponse(
+        coro, status_code=206, media_type="text/plain")
+    return response

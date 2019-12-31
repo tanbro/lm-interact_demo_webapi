@@ -65,7 +65,7 @@ class Interactor:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        logger.info('%s: pending', self._proc.pid)
+        logger.info('%s: pending', self._proc)
         if not self._started_condition:
             self._proc_started = True
             func = self._on_started
@@ -81,12 +81,11 @@ class Interactor:
         return line, tag
 
     async def monitor(self, read_timeout=1, encoding=None):
-        encoding = encoding or getpreferredencoding()
-
-        proc = self._proc
         logger = self._logger
-        at_eof = False
+        proc = self._proc
         try:
+            encoding = encoding or getpreferredencoding()
+            at_eof = False
             while not at_eof:
                 aws = {
                     asyncio.create_task(self.read_line(stream, name_tag))
@@ -112,8 +111,7 @@ class Interactor:
                             elif callable(func):
                                 started = func(name, line)
                             else:
-                                raise RuntimeError(
-                                    'Wrong `started_condition` type: %r', func)
+                                logger.error('%s: Wrong `started_condition` type: %s', proc, func)
                         self._proc_started = bool(started)
                         if started:
                             logger.info('%s: started', proc)
@@ -126,8 +124,7 @@ class Interactor:
                                 elif callable(func):
                                     asyncio.get_event_loop().call_soon(func)
                                 else:
-                                    raise RuntimeError(
-                                        'Wrong `on_started` type: %r', func)
+                                    logger.error('%s: Wrong `on_started` type: %s', proc, func)
                     # 启动的回调函数
                     if self._proc_started:
                         if name == 'stdout':
@@ -138,8 +135,7 @@ class Interactor:
                                 elif callable(func):
                                     func(line)
                                 else:
-                                    raise RuntimeError(
-                                        'Wrong `stdout_callback` type: %r', func)
+                                    logger.error('%s: Wrong `stdout_callback` type: %s', proc, func)
                     # onOutput 无论是否启动成功
                     func = self._on_output
                     if func:
@@ -150,24 +146,25 @@ class Interactor:
                         else:
                             raise RuntimeError(
                                 'Wrong `on_output` type: %r', func)
+            # end of while
+
+            self._proc_terminated = True
+            logger.warning('%s: terminated(returncode=%s)', proc, proc.returncode)
+
+            func = self._on_terminated
+            if func:
+                if asyncio.iscoroutine(func):
+                    asyncio.create_task(func)
+                elif asyncio.iscoroutinefunction(func):
+                    asyncio.create_task(func())
+                elif callable(func):
+                    asyncio.get_event_loop().call_soon(func)
+                else:
+                    raise RuntimeError('Wrong `on_terminated` type: %r', func)
 
         except Exception as err:
             logger.exception('%s: monitor: %s', proc, err)
             raise
-
-        finally:
-            self._proc_terminated = False
-            logger.warning('%s: terminated(returncode=%s)',
-                           proc, proc.returncode)
-
-        func = self._on_terminated
-        if func:
-            if asyncio.iscoroutinefunction(func):
-                asyncio.create_task(func())
-            elif callable(func):
-                asyncio.get_event_loop().call_soon(func)
-            else:
-                raise RuntimeError('Wrong `on_terminated` type: %r', func)
 
     async def interact(self, input_text: str, timeout=30, encoding=None) -> str:
         proc = self._proc
