@@ -78,6 +78,7 @@ async def create(wait: float = 0):
         lock = asyncio.Lock()
         backends[uid] = (backend, interactor, lock)
         await interactor.startup()
+        backend.pid = interactor.proc.pid
 
     return backend
 
@@ -125,7 +126,7 @@ async def delete(uid: UUID):
         interactor.terminate()
 
 
-@app.get('/chat/{uid}/trace')
+@app.get('/qa/{uid}/trace')
 async def trace(uid: UUID, timeout: float = 15):
     """trace before started
     """
