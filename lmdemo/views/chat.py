@@ -104,7 +104,7 @@ async def create():
                 raise
             else:
                 backend.pid = inter.proc.pid
-                logger.info('Backend create ok: %s', uid, inter.proc)
+                logger.info('Backend create ok: %s', inter.proc)
 
         return backend
     except Exception as err:
@@ -206,25 +206,29 @@ async def trace(uid: UUID, timeout: float = 15):
         raise HTTPException(403, detail='backend process terminated')
 
     async def streaming(inter, max_alive=15, wait_timeout=1):
-        ts = time()
-        queue = asyncio.Queue()
-
-        inter.on_output = lambda k, v: queue.put_nowait((k, v))
         try:
-            while (
-                time()-ts < max_alive
-                and not inter.started
-                and not inter.terminated
-            ):
-                try:
-                    data = await asyncio.wait_for(queue.get(), timeout=wait_timeout)
-                except asyncio.TimeoutError:
-                    pass
-                else:
-                    name, txt = data
-                    yield '{}:{}{}'.format(name, txt, os.linesep)
-        finally:
-            inter.on_output = None
+            ts = time()
+            queue = asyncio.Queue()
+
+            inter.on_output = lambda k, v: queue.put_nowait((k, v))
+            try:
+                while (
+                    time()-ts < max_alive
+                    and not inter.started
+                    and not inter.terminated
+                ):
+                    try:
+                        data = await asyncio.wait_for(queue.get(), timeout=wait_timeout)
+                    except asyncio.TimeoutError:
+                        pass
+                    else:
+                        name, txt = data
+                        yield '{}:{}{}'.format(name, txt, os.linesep)
+            finally:
+                inter.on_output = None
+        except Exception as err:
+            logger.exception('An un-caught error occurred when tracing backend starting output: %s', err)
+            raise
 
     gen = streaming(inter, timeout)
     response = StreamingResponse(gen, status_code=206, media_type="text/plain")
