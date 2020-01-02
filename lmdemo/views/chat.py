@@ -3,7 +3,7 @@ import logging
 import os
 import shlex
 import signal
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import partial
 from time import time
 from typing import Dict, List, Tuple, Union
@@ -123,7 +123,7 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
     out_msg = TextMessage(
         direction=MessageDirection.outgoing,
         message=out_txt,
-        time=datetime.now()
+        time=datetime.now(timezone.utc)
     )
     msg_list.append(out_msg)
 
