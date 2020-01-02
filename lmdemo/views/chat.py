@@ -21,6 +21,7 @@ from ..utils.interactor import Interactor
 
 MAX_BACKENDS = 1
 
+backends_lock = asyncio.Lock()
 
 backends: Dict[
     str,
@@ -36,23 +37,6 @@ def list_():
 @app.post('/chat', status_code=201, response_model=ChatBackend)
 async def create():
     logger = logging.getLogger('__name__')
-
-    if len(backends) >= MAX_BACKENDS:
-        raise HTTPException(
-            status_code=403,
-            detail='Max length of backends reached: {}'.format(
-                MAX_BACKENDS)
-        )
-
-    # 新建聊天进程
-    uid = uuid1()
-    obj = ChatBackend(
-        uid=uid,
-        program=settings.chat_program,
-        args=settings.chat_args,
-        cwd=settings.chat_cwd
-    )
-    logger.info('create Chat backend: %s', obj)
 
     def fn_started_condition(_obj, _name, _line):
         if _name.strip().lower() == 'stdout':
@@ -75,25 +59,44 @@ async def create():
         except KeyError:
             pass
 
-    inter = Interactor(
-        obj.program, shlex.split(obj.args), obj.cwd,
-        started_condition=partial(fn_started_condition, obj),
-        on_started=partial(fn_on_started, obj),
-        on_terminated=partial(fn_on_terminated, obj),
-    )
-    lock = asyncio.Lock()
-    backends[uid] = (obj, inter, lock, [])
+    with backends_lock:
+        if len(backends) >= MAX_BACKENDS:
+            raise HTTPException(
+                status_code=403,
+                detail='Max length of backends reached: {}'.format(
+                    MAX_BACKENDS)
+            )
 
-    async with lock:
-        try:
-            await inter.startup()
-        except:
-            del backends[uid]
-            raise
+        # 新建聊天进程
+        uid = uuid1()
+        backend = ChatBackend(
+            uid=uid,
+            program=settings.chat_program,
+            args=settings.chat_args,
+            cwd=settings.chat_cwd
+        )
+        logger.info('create Chat backend: %s', backend)
 
-    logger.info('%s: proc=%s', uid, inter.proc)
-    obj.pid = inter.proc.pid
-    return obj
+        inter = Interactor(
+            backend.program, shlex.split(backend.args), backend.cwd,
+            started_condition=partial(fn_started_condition, backend),
+            on_started=partial(fn_on_started, backend),
+            on_terminated=partial(fn_on_terminated, backend),
+        )
+        lock = asyncio.Lock()
+        backends[uid] = (backend, inter, lock, [])
+
+        async with lock:
+            try:
+                await inter.startup()
+            except:
+                del backends[uid]
+                raise
+
+        backend.pid = inter.proc.pid
+        logger.info('%s: proc=%s', uid, inter.proc)
+
+    return backend
 
 
 @app.get('/chat/{uid}', response_model=ChatBackend)

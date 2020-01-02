@@ -13,6 +13,7 @@ def e(name: str) -> str:
 
 
 class Settings(BaseSettings):
+    # pylint: disable=too-few-public-methods
     allow_origins: str = Field('*', env=e('allow_origins'))
 
     chat_program: str = Field(executable, env=e('chat_program'))
@@ -24,6 +25,6 @@ class Settings(BaseSettings):
     qa_cwd: str = Field(getcwd(), env=e('qa_cwd'))
 
 
-settings = Settings()
+settings = Settings()  # pylint:disable=invalid-name
 
 logging.getLogger(__name__).info('settings:\n%s', pformat(settings.dict()))

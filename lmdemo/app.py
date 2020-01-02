@@ -3,7 +3,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from .settings import settings
 
-app = FastAPI()
+app = FastAPI()  # pylint:disable=invalid-name
 
 app.add_middleware(
     CORSMiddleware,
