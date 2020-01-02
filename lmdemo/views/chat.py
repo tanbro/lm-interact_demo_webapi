@@ -104,55 +104,58 @@ async def create():
                 raise
             else:
                 backend.pid = inter.proc.pid
-                logger.info('%s: proc=%s', uid, inter.proc)
+                logger.info('Backend create ok: %s', uid, inter.proc)
 
-    except Exception as err:
-        logger.exception('error when create: %s', err)
-        raise
-
-    else:
         return backend
+    except Exception as err:
+        logger.exception('An un-caught error occurred when create: %s', err)
+        raise
 
 
 @app.get('/chat/{uid}', response_model=ChatBackend)
-def get(uid: UUID):
-    with backends_lock:
+async def get(uid: UUID):
+    async with backends_lock:
         try:
             obj, *_ = backends[uid]
         except KeyError:
-            raise HTTPException(403)
+            raise HTTPException(404)
 
     return obj
 
 
 @app.post('/chat/{uid}', response_model=TextMessage)
 async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
-    with backends_lock:
-        try:
-            _, inter, lock, msg_list, *_ = backends[uid]
-        except KeyError:
-            raise HTTPException(404)
+    logger = logging.getLogger('__name__')
+    try:
+        async with backends_lock:
+            try:
+                _, inter, lock, msg_list, *_ = backends[uid]
+            except KeyError:
+                raise HTTPException(404)
 
-    msg.direction = MessageDirection.incoming
-    msg_list.append(msg)
+        msg.direction = MessageDirection.incoming
+        msg_list.append(msg)
 
-    async with lock:
-        out_txt = await inter.interact(msg.message, timeout=timeout)
+        async with lock:
+            out_txt = await inter.interact(msg.message, timeout=timeout)
 
-    out_txt = out_txt.lstrip('>').lstrip().lstrip('▁').lstrip()
-    out_msg = TextMessage(
-        direction=MessageDirection.outgoing,
-        message=out_txt,
-        time=datetime.now(timezone.utc)
-    )
-    msg_list.append(out_msg)
+        out_txt = out_txt.lstrip('>').lstrip().lstrip('▁').lstrip()
+        out_msg = TextMessage(
+            direction=MessageDirection.outgoing,
+            message=out_txt,
+            time=datetime.now(timezone.utc)
+        )
+        msg_list.append(out_msg)
 
-    return out_msg
+        return out_msg
+    except Exception as err:
+        logger.exception('An un-caught error occurred when interact: %s', err)
+        raise
 
 
 @app.delete('/chat/{uid}')
 async def delete(uid: UUID):
-    with backends_lock:
+    async with backends_lock:
         try:
             _, inter, lock, *_ = backends.pop(uid)
         except KeyError:
@@ -164,7 +167,7 @@ async def delete(uid: UUID):
 
 @app.get('/chat/{uid}/history', response_model=List[TextMessage])
 async def get_history(uid: UUID):
-    with backends_lock:
+    async with backends_lock:
         try:
             _, _, _, msg_list, *_ = backends[uid]
         except KeyError:
@@ -175,7 +178,7 @@ async def get_history(uid: UUID):
 
 @app.delete('/chat/{uid}/history')
 async def delete_history(uid: UUID):
-    with backends_lock:
+    async with backends_lock:
         try:
             _, inter, lock, msg_list, *_ = backends[uid]
         except KeyError:
@@ -191,7 +194,7 @@ async def delete_history(uid: UUID):
 async def trace(uid: UUID, timeout: float = 15):
     """trace before started
     """
-    with backends_lock:
+    async with backends_lock:
         try:
             _, inter, *_ = backends[uid]
         except KeyError:

@@ -51,8 +51,8 @@ class Interactor:
         self._on_started = on_started
         self._on_output = on_output
         self._on_terminated = on_terminated
-        self._stdout_callback = None
-        self._stderr_callback = None
+        self._cb_stdout = None
+        self._cb_stderr = None
         self._input_lock = asyncio.Lock()
 
     async def startup(self):
@@ -121,26 +121,19 @@ class Interactor:
                     # 启动的回调函数
                     if self._proc_started:
                         if name == 'stdout':
-                            func = self._stdout_callback
-                            if asyncio.iscoroutine(func):
-                                await func
-                            elif callable(func):
-                                ret_val = func()
-                                if asyncio.iscoroutine(ret_val):
-                                    await ret_val
+                            func = self._cb_stdout
+                            if func:
+                                func(line)
+                        elif name == 'stderr':
+                            func = self._cb_stderr
+                            if func:
+                                func(line)
                     # onOutput 无论是否启动成功
                     func = self._on_output
-                    if asyncio.iscoroutine(func):
-                        await func
-                    elif callable(func):
-                        ret_val = func()
+                    if callable(func):
+                        ret_val = func(name, line)
                         if asyncio.iscoroutine(ret_val):
                             await ret_val
-                    if func:
-                        if callable(func):
-                            ret_val = func(name, line)
-                            if asyncio.iscoroutine(ret_val):
-                                await ret_val
             # end of while
 
             self._proc_terminated = True
@@ -177,7 +170,7 @@ class Interactor:
         try:
             async with lock:
                 output_future = asyncio.get_event_loop().create_future()
-                self._stdout_callback = lambda x: (
+                self._cb_stdout = lambda x: (
                     output_future.set_result(x.strip())
                 )
                 try:
@@ -193,7 +186,7 @@ class Interactor:
                         raise RuntimeError(
                             'streaming i/o tasks can not be done: %r', pending)
                 finally:
-                    self._stdout_callback = None
+                    self._cb_stdout = None
 
             output_text = output_future.result()
         except Exception as err:
