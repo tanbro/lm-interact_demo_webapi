@@ -6,7 +6,7 @@ import signal
 from datetime import datetime, timezone
 from functools import partial
 from time import time
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple
 from uuid import UUID, uuid1
 
 from fastapi import HTTPException
@@ -36,55 +36,65 @@ def list_():
 
 @app.post('/chat', status_code=201, response_model=ChatBackend)
 async def create():
+
     logger = logging.getLogger('__name__')
 
-    def fn_started_condition(_obj, _name, _line):
-        if _name.strip().lower() == 'stdout':
+    async def coro_started_condition(uid, name, line):
+        if name.strip().lower() == 'stdout':
             personality = (
-                _line
+                line
                 .lstrip('>').lstrip()
                 .lstrip('▁').lstrip()
             )
-            _obj.personality = personality
+            async with backends_lock:
+                backend, _, lock, *_ = backends[uid]
+            async with lock:
+                backend.personality = personality
             return True
         return False
 
-    def fn_on_started(_obj):
-        _obj.state = BackendState.started
-        logging.getLogger(__name__).info('started: %s', _obj)
+    async def coro_on_started(uid):
+        async with backends_lock:
+            backend, _, lock, *_ = backends[uid]
+        async with lock:
+            backend.state = BackendState.started
 
-    def fn_on_terminated(_obj):
-        try:
-            del backends[_obj.uid]
-        except KeyError:
-            pass
+    async def coro_on_terminated(uid):
+        async with backends_lock:
+            try:
+                del backends[backend.uid]
+            except KeyError:
+                pass
 
-    with backends_lock:
-        if len(backends) >= MAX_BACKENDS:
-            raise HTTPException(
-                status_code=403,
-                detail='Max length of backends reached: {}'.format(
-                    MAX_BACKENDS)
+    try:
+
+        async with backends_lock:
+            if len(backends) >= MAX_BACKENDS:
+                raise HTTPException(
+                    status_code=403,
+                    detail='Max length of backends reached: {}'.format(
+                        MAX_BACKENDS)
+                )
+
+            # 新建聊天进程
+            uid = uuid1()
+            backend = ChatBackend(
+                uid=uid,
+                program=settings.chat_program,
+                args=settings.chat_args,
+                cwd=settings.chat_cwd
             )
+            logger.info('create Chat backend: %s', backend)
 
-        # 新建聊天进程
-        uid = uuid1()
-        backend = ChatBackend(
-            uid=uid,
-            program=settings.chat_program,
-            args=settings.chat_args,
-            cwd=settings.chat_cwd
-        )
-        logger.info('create Chat backend: %s', backend)
+            inter = Interactor(
+                backend.program, shlex.split(backend.args), backend.cwd,
+                started_condition=partial(coro_started_condition, uid),
+                on_started=coro_on_started(uid),
+                on_terminated=coro_on_terminated(uid),
+            )
+            lock = asyncio.Lock()
 
-        inter = Interactor(
-            backend.program, shlex.split(backend.args), backend.cwd,
-            started_condition=partial(fn_started_condition, backend),
-            on_started=partial(fn_on_started, backend),
-            on_terminated=partial(fn_on_terminated, backend),
-        )
-        lock = asyncio.Lock()
-        backends[uid] = (backend, inter, lock, [])
+            backends[uid] = (backend, inter, lock, [])
 
         async with lock:
             try:
@@ -92,29 +102,36 @@ async def create():
             except:
                 del backends[uid]
                 raise
+            else:
+                backend.pid = inter.proc.pid
+                logger.info('%s: proc=%s', uid, inter.proc)
 
-        backend.pid = inter.proc.pid
-        logger.info('%s: proc=%s', uid, inter.proc)
+    except Exception as err:
+        logger.exception('error when create: %s', err)
+        raise
 
-    return backend
+    else:
+        return backend
 
 
 @app.get('/chat/{uid}', response_model=ChatBackend)
 def get(uid: UUID):
-    try:
-        obj, *_ = backends[uid]
-    except KeyError:
-        raise HTTPException(403)
+    with backends_lock:
+        try:
+            obj, *_ = backends[uid]
+        except KeyError:
+            raise HTTPException(403)
 
     return obj
 
 
 @app.post('/chat/{uid}', response_model=TextMessage)
 async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
-    try:
-        _, inter, lock, msg_list, *_ = backends[uid]
-    except KeyError:
-        raise HTTPException(404)
+    with backends_lock:
+        try:
+            _, inter, lock, msg_list, *_ = backends[uid]
+        except KeyError:
+            raise HTTPException(404)
 
     msg.direction = MessageDirection.incoming
     msg_list.append(msg)
@@ -135,10 +152,11 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
 
 @app.delete('/chat/{uid}')
 async def delete(uid: UUID):
-    try:
-        _, inter, lock, *_ = backends.pop(uid)
-    except KeyError:
-        raise HTTPException(404)
+    with backends_lock:
+        try:
+            _, inter, lock, *_ = backends.pop(uid)
+        except KeyError:
+            raise HTTPException(404)
 
     async with lock:
         inter.terminate()
@@ -146,20 +164,22 @@ async def delete(uid: UUID):
 
 @app.get('/chat/{uid}/history', response_model=List[TextMessage])
 async def get_history(uid: UUID):
-    try:
-        _, _, _, msg_list, *_ = backends[uid]
-    except KeyError:
-        raise HTTPException(404)
+    with backends_lock:
+        try:
+            _, _, _, msg_list, *_ = backends[uid]
+        except KeyError:
+            raise HTTPException(404)
 
     return msg_list
 
 
 @app.delete('/chat/{uid}/history')
 async def delete_history(uid: UUID):
-    try:
-        _, inter, lock, msg_list, *_ = backends[uid]
-    except KeyError:
-        raise HTTPException(404)
+    with backends_lock:
+        try:
+            _, inter, lock, msg_list, *_ = backends[uid]
+        except KeyError:
+            raise HTTPException(404)
 
     async with lock:
         inter.signal(signal.SIGHUP)
@@ -171,10 +191,11 @@ async def delete_history(uid: UUID):
 async def trace(uid: UUID, timeout: float = 15):
     """trace before started
     """
-    try:
-        _, inter, *_ = backends[uid]
-    except KeyError:
-        raise HTTPException(404)
+    with backends_lock:
+        try:
+            _, inter, *_ = backends[uid]
+        except KeyError:
+            raise HTTPException(404)
 
     if inter.started:
         return Response(status_code=204)

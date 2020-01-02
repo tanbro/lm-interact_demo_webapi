@@ -103,64 +103,56 @@ class Interactor:
                     line = data.decode(encoding).strip()
                     logger.debug('%s: %s: %s', proc, name, line)
                     if not self._proc_started:
-                        started = False
                         func = self._started_condition
-                        if func:
-                            if asyncio.iscoroutinefunction(func):
-                                started = await func(name, line)
-                            elif callable(func):
-                                started = func(name, line)
-                            else:
-                                logger.error('%s: Wrong `started_condition` type: %s', proc, func)
-                        self._proc_started = bool(started)
-                        if started:
+                        if callable(func):
+                            started = func(name, line)
+                            if asyncio.iscoroutine(started):
+                                started = await started
+                            self._proc_started = bool(started)
+                        if self._proc_started:
                             logger.info('%s: started', proc)
                             func = self._on_started
-                            if func:
-                                if asyncio.iscoroutine(func):
-                                    asyncio.create_task(func)
-                                elif asyncio.iscoroutinefunction(func):
-                                    asyncio.create_task(func())
-                                elif callable(func):
-                                    asyncio.get_event_loop().call_soon(func)
-                                else:
-                                    logger.error('%s: Wrong `on_started` type: %s', proc, func)
+                            if asyncio.iscoroutine(func):
+                                await func
+                            elif callable(func):
+                                ret_val = func()
+                                if asyncio.iscoroutine(ret_val):
+                                    await ret_val
                     # 启动的回调函数
                     if self._proc_started:
                         if name == 'stdout':
                             func = self._stdout_callback
-                            if func:
-                                if asyncio.iscoroutinefunction(func):
-                                    await func(line)
-                                elif callable(func):
-                                    func(line)
-                                else:
-                                    logger.error('%s: Wrong `stdout_callback` type: %s', proc, func)
+                            if asyncio.iscoroutine(func):
+                                await func
+                            elif callable(func):
+                                ret_val = func()
+                                if asyncio.iscoroutine(ret_val):
+                                    await ret_val
                     # onOutput 无论是否启动成功
                     func = self._on_output
+                    if asyncio.iscoroutine(func):
+                        await func
+                    elif callable(func):
+                        ret_val = func()
+                        if asyncio.iscoroutine(ret_val):
+                            await ret_val
                     if func:
-                        if asyncio.iscoroutinefunction(func):
-                            asyncio.create_task(func(name, line))
-                        elif callable(func):
-                            asyncio.get_event_loop().call_soon(func, name, line)
-                        else:
-                            raise RuntimeError(
-                                'Wrong `on_output` type: %r', func)
+                        if callable(func):
+                            ret_val = func(name, line)
+                            if asyncio.iscoroutine(ret_val):
+                                await ret_val
             # end of while
 
             self._proc_terminated = True
             logger.warning('%s: terminated(returncode=%s)', proc, proc.returncode)
 
             func = self._on_terminated
-            if func:
-                if asyncio.iscoroutine(func):
-                    asyncio.create_task(func)
-                elif asyncio.iscoroutinefunction(func):
-                    asyncio.create_task(func())
-                elif callable(func):
-                    asyncio.get_event_loop().call_soon(func)
-                else:
-                    raise RuntimeError('Wrong `on_terminated` type: %r', func)
+            if asyncio.iscoroutine(func):
+                await func
+            elif callable(func):
+                ret_val = func()
+                if asyncio.iscoroutine(ret_val):
+                    await ret_val
 
         except Exception as err:
             logger.exception('%s: monitor: %s', proc, err)

@@ -40,7 +40,8 @@ async def create(wait: float = 0):
     async def coro_on_started(uid):
         logger = logging.getLogger(__name__)
         logger.info('QA backend started: %s', uid)
-        backend, _, lock, *_ = backends[uid]
+        async with backends_lock:
+            backend, _, lock, *_ = backends[uid]
         async with lock:
             backend.state = BackendState.started
 
