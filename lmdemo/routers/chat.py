@@ -143,6 +143,25 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
         msg_list.append(msg)
         out_messages = []
 
+        # 如果超过 X 轮对话，每隔 Y 轮就推荐咨询师
+        n_turn = sum(1 for m in msg_list if m.direction == MessageDirection.incoming)
+        if n_turn > 2 and n_turn % 3 == 0:
+            with open('data/counselors.yml') as fp:
+                ds = yaml.load(fp, Loader=yaml.SafeLoader)
+            ds = random.sample(ds, k=3)
+            logger.debug('ds: %s', ds)
+            counselors = [Counselor(**d) for d in ds]
+            out_msg = SuggestCounselorMessage(
+                direction=MessageDirection.outgoing,
+                message=SuggestCounselorMessageBody(
+                    text='根据过往的聊天记录，为您智能推荐以下{}位适合的咨询师：'.format(len(counselors)),
+                    counselors=counselors
+                ),
+                time=datetime.now(tzlocal())
+            )
+            out_messages.append(out_msg)
+
+        # 通过 pipe 调用 model 文本生成
         async with lock:
             out_txt = await inter.interact(msg.message, timeout=timeout)
         out_txt = out_txt.lstrip('>').lstrip().lstrip('▁').lstrip()
@@ -152,24 +171,6 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
             time=datetime.now(tzlocal())
         )
         out_messages.append(out_msg)
-
-        # 如果超过 N 轮对话，就推荐咨询师
-        n_turn = sum(1 for m in msg_list if m.direction == MessageDirection.incoming)
-        if n_turn > 2:
-            with open('data/counselors.yml') as fp:
-                ds = yaml.load(fp, Loader=yaml.SafeLoader)
-            ds = random.sample(ds, k=3)
-            logger.debug('ds: %s', ds)
-            counselors = [Counselor(**d) for d in ds]
-            out_msg = SuggestCounselorMessage(
-                direction=MessageDirection.outgoing,
-                message=SuggestCounselorMessageBody(
-                    text='根据对话内容，为您推荐以下几位咨询师',
-                    counselors=counselors
-                ),
-                time=datetime.now(tzlocal())
-            )
-            out_messages.append(out_msg)
 
         msg_list.extend(out_messages)
 
