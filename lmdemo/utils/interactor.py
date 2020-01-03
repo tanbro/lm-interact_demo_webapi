@@ -73,7 +73,7 @@ class Interactor:
                 await func()
             elif callable(func):
                 func()
-        asyncio.create_task(self.monitor())
+        asyncio.ensure_future(self.monitor())
         return self._proc
 
     async def read_line(self, stream, tag=None):
@@ -88,7 +88,7 @@ class Interactor:
             at_eof = False
             while not at_eof:
                 aws = {
-                    asyncio.create_task(self.read_line(stream, name_tag))
+                    asyncio.ensure_future(self.read_line(stream, name_tag))
                     for name_tag, stream in [('stdout', proc.stdout), ('stderr', proc.stderr)]
                 }
                 done, pending = await asyncio.wait(aws, timeout=read_timeout, return_when=asyncio.FIRST_COMPLETED)

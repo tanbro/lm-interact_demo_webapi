@@ -1,12 +1,13 @@
 import asyncio.subprocess
 import logging
 import os
+import random
 import shlex
 import signal
 from datetime import datetime
 from functools import partial
 from time import time
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 from uuid import UUID, uuid1
 
 import yaml
@@ -128,7 +129,7 @@ async def get(uid: UUID):
     return obj
 
 
-@router.post('/{uid}', response_model=UnionMessageTypes)
+@router.post('/{uid}', response_model=Union[UnionMessageTypes, List[UnionMessageTypes]])
 async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
     logger = logging.getLogger(__name__)
     try:
@@ -140,13 +141,25 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
 
         msg.direction = MessageDirection.incoming
         msg_list.append(msg)
-        out_msg = None
+        out_messages = []
 
-        # 如果超过三轮对话，就推荐咨询师
-        if len(msg_list) > 2:
-            # TODO: 推荐咨询师
+        async with lock:
+            out_txt = await inter.interact(msg.message, timeout=timeout)
+        out_txt = out_txt.lstrip('>').lstrip().lstrip('▁').lstrip()
+        out_msg = TextMessage(
+            direction=MessageDirection.outgoing,
+            message=out_txt,
+            time=datetime.now(tzlocal())
+        )
+        out_messages.append(out_msg)
+
+        # 如果超过 N 轮对话，就推荐咨询师
+        n_turn = sum(1 for m in msg_list if m.direction == MessageDirection.incoming)
+        if n_turn > 2:
             with open('data/counselors.yml') as fp:
                 ds = yaml.load(fp, Loader=yaml.SafeLoader)
+            ds = random.sample(ds, k=3)
+            logger.debug('ds: %s', ds)
             counselors = [Counselor(**d) for d in ds]
             out_msg = SuggestCounselorMessage(
                 direction=MessageDirection.outgoing,
@@ -156,18 +169,14 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
                 ),
                 time=datetime.now(tzlocal())
             )
-        else:
-            async with lock:
-                out_txt = await inter.interact(msg.message, timeout=timeout)
-            out_txt = out_txt.lstrip('>').lstrip().lstrip('▁').lstrip()
-            out_msg = TextMessage(
-                direction=MessageDirection.outgoing,
-                message=out_txt,
-                time=datetime.now(tzlocal())
-            )
+            out_messages.append(out_msg)
 
-        msg_list.append(out_msg)
-        return out_msg
+        msg_list.extend(out_messages)
+
+        if len(out_messages) == 1:
+            return out_messages[0]
+        else:
+            return out_messages
     except Exception as err:
         logger.exception('An un-caught error occurred when interact: %s', err)
         raise
@@ -247,7 +256,10 @@ async def trace(uid: UUID, timeout: float = 15):
             finally:
                 inter.on_output = None
         except Exception as err:
-            logger.exception('An un-caught error occurred when tracing backend starting output: %s', err)
+            logging.getLogger(__name__).exception(
+                'An un-caught error occurred when tracing backend starting output: %s',
+                err
+            )
             raise
 
     gen = streaming(inter, timeout)
