@@ -3,16 +3,16 @@ import logging
 import os
 import shlex
 import signal
-from datetime import datetime, timezone
+from datetime import datetime
 from functools import partial
 from time import time
 from typing import Dict, List, Tuple
 from uuid import UUID, uuid1
 
-from fastapi import HTTPException
+from dateutil.tz import tzlocal
+from fastapi import APIRouter, HTTPException
 from starlette.responses import Response, StreamingResponse
 
-from ..app import app
 from ..models.backend import BackendState
 from ..models.chat import (BaseMessage, ChatBackend, MessageDirection,
                            TextMessage)
@@ -20,6 +20,8 @@ from ..settings import settings
 from ..utils.interactor import Interactor
 
 MAX_BACKENDS = 1
+
+router = APIRouter()
 
 backends_lock = asyncio.Lock()
 
@@ -29,12 +31,12 @@ backends: Dict[
 ] = {}
 
 
-@app.get('/chat', response_model=List[ChatBackend])
+@router.get('/', response_model=List[ChatBackend])
 def list_():
     return [v[0] for v in backends.values()]
 
 
-@app.post('/chat', status_code=201, response_model=ChatBackend)
+@router.post('/', status_code=201, response_model=ChatBackend)
 async def create():
 
     logger = logging.getLogger('__name__')
@@ -112,7 +114,7 @@ async def create():
         raise
 
 
-@app.get('/chat/{uid}', response_model=ChatBackend)
+@router.get('/{uid}', response_model=ChatBackend)
 async def get(uid: UUID):
     async with backends_lock:
         try:
@@ -123,7 +125,7 @@ async def get(uid: UUID):
     return obj
 
 
-@app.post('/chat/{uid}', response_model=TextMessage)
+@router.post('/{uid}', response_model=TextMessage)
 async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
     logger = logging.getLogger('__name__')
     try:
@@ -143,7 +145,7 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
         out_msg = TextMessage(
             direction=MessageDirection.outgoing,
             message=out_txt,
-            time=datetime.now(timezone.utc)
+            time=datetime.now(tzlocal())
         )
         msg_list.append(out_msg)
 
@@ -153,7 +155,7 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
         raise
 
 
-@app.delete('/chat/{uid}')
+@router.delete('/{uid}')
 async def delete(uid: UUID):
     async with backends_lock:
         try:
@@ -165,7 +167,7 @@ async def delete(uid: UUID):
         inter.terminate()
 
 
-@app.get('/chat/{uid}/history', response_model=List[TextMessage])
+@router.get('/{uid}/history', response_model=List[TextMessage])
 async def get_history(uid: UUID):
     async with backends_lock:
         try:
@@ -176,7 +178,7 @@ async def get_history(uid: UUID):
     return msg_list
 
 
-@app.delete('/chat/{uid}/history')
+@router.delete('/{uid}/history')
 async def delete_history(uid: UUID):
     async with backends_lock:
         try:
@@ -190,7 +192,7 @@ async def delete_history(uid: UUID):
             del msg_list[0]
 
 
-@app.get('/chat/{uid}/trace')
+@router.get('/{uid}/trace')
 async def trace(uid: UUID, timeout: float = 15):
     """trace before started
     """

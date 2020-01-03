@@ -6,16 +6,18 @@ from time import time
 from typing import Dict, List, Tuple
 from uuid import UUID, uuid1
 
+from fastapi import APIRouter
 from starlette.exceptions import HTTPException
 from starlette.responses import Response, StreamingResponse
 
-from ..app import app
 from ..models.backend import Backend, BackendState
 from ..models.qa import Answer, Question
 from ..settings import settings
 from ..utils.interactor import Interactor
 
 MAX_BACKENDS = 1
+
+router = APIRouter()
 
 backends: Dict[
     str,
@@ -25,12 +27,12 @@ backends: Dict[
 backends_lock = asyncio.Lock()
 
 
-@app.get('/qa', response_model=List[Backend])
+@router.get('/', response_model=List[Backend])
 def list_():
     return [v[0] for v in backends.values()]
 
 
-@app.post('/qa', status_code=201, response_model=Backend)
+@router.post('/', status_code=201, response_model=Backend)
 async def create(wait: float = 0):
     logger = logging.getLogger(__name__)
 
@@ -84,7 +86,7 @@ async def create(wait: float = 0):
     return backend
 
 
-@app.get('/qa/{uid}', response_model=Backend)
+@router.get('/{uid}', response_model=Backend)
 async def get(uid: UUID):
     async with backends_lock:
         try:
@@ -94,7 +96,7 @@ async def get(uid: UUID):
         return obj
 
 
-@app.post('/qa/{uid}', response_model=Answer)
+@router.post('/{uid}', response_model=Answer)
 async def interact(uid: UUID, item: Question, timeout: float = 15):
     async with backends_lock:
         try:
@@ -115,7 +117,7 @@ async def interact(uid: UUID, item: Question, timeout: float = 15):
     return answer
 
 
-@app.delete('/qa/{uid}')
+@router.delete('/{uid}')
 async def delete(uid: UUID):
     async with backends_lock:
         try:
@@ -127,7 +129,7 @@ async def delete(uid: UUID):
         interactor.terminate()
 
 
-@app.get('/qa/{uid}/trace')
+@router.get('/{uid}/trace')
 async def trace(uid: UUID, timeout: float = 15):
     """trace before started
     """
