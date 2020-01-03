@@ -9,13 +9,16 @@ from time import time
 from typing import Dict, List, Tuple
 from uuid import UUID, uuid1
 
+import yaml
 from dateutil.tz import tzlocal
 from fastapi import APIRouter, HTTPException
 from starlette.responses import Response, StreamingResponse
 
 from ..models.backend import BackendState
-from ..models.chat import (BaseMessage, ChatBackend, MessageDirection,
-                           TextMessage)
+from ..models.chat import (BaseMessage, ChatBackend, Counselor,
+                           MessageDirection, SuggestCounselorMessage,
+                           SuggestCounselorMessageBody, TextMessage,
+                           UnionMessageTypes)
 from ..settings import settings
 from ..utils.interactor import Interactor
 
@@ -39,7 +42,7 @@ def list_():
 @router.post('/', status_code=201, response_model=ChatBackend)
 async def create():
 
-    logger = logging.getLogger('__name__')
+    logger = logging.getLogger(__name__)
 
     async def coro_started_condition(uid, name, line):
         if name.strip().lower() == 'stdout':
@@ -125,9 +128,9 @@ async def get(uid: UUID):
     return obj
 
 
-@router.post('/{uid}', response_model=TextMessage)
+@router.post('/{uid}', response_model=UnionMessageTypes)
 async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
-    logger = logging.getLogger('__name__')
+    logger = logging.getLogger(__name__)
     try:
         async with backends_lock:
             try:
@@ -137,18 +140,33 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
 
         msg.direction = MessageDirection.incoming
         msg_list.append(msg)
+        out_msg = None
 
-        async with lock:
-            out_txt = await inter.interact(msg.message, timeout=timeout)
+        # 如果超过三轮对话，就推荐咨询师
+        if len(msg_list) > 2:
+            # TODO: 推荐咨询师
+            with open('data/counselors.yml') as fp:
+                ds = yaml.load(fp, Loader=yaml.SafeLoader)
+            counselors = [Counselor(**d) for d in ds]
+            out_msg = SuggestCounselorMessage(
+                direction=MessageDirection.outgoing,
+                message=SuggestCounselorMessageBody(
+                    text='根据对话内容，为您推荐以下几位咨询师',
+                    counselors=counselors
+                ),
+                time=datetime.now(tzlocal())
+            )
+        else:
+            async with lock:
+                out_txt = await inter.interact(msg.message, timeout=timeout)
+            out_txt = out_txt.lstrip('>').lstrip().lstrip('▁').lstrip()
+            out_msg = TextMessage(
+                direction=MessageDirection.outgoing,
+                message=out_txt,
+                time=datetime.now(tzlocal())
+            )
 
-        out_txt = out_txt.lstrip('>').lstrip().lstrip('▁').lstrip()
-        out_msg = TextMessage(
-            direction=MessageDirection.outgoing,
-            message=out_txt,
-            time=datetime.now(tzlocal())
-        )
         msg_list.append(out_msg)
-
         return out_msg
     except Exception as err:
         logger.exception('An un-caught error occurred when interact: %s', err)
@@ -167,7 +185,7 @@ async def delete(uid: UUID):
         inter.terminate()
 
 
-@router.get('/{uid}/history', response_model=List[TextMessage])
+@router.get('/{uid}/history', response_model=List[UnionMessageTypes])
 async def get_history(uid: UUID):
     async with backends_lock:
         try:

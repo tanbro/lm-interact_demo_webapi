@@ -1,4 +1,5 @@
 fastapi
-uvicorn
-python-dotenv
 python-dateutil
+python-dotenv
+PyYAML
+uvicorn
