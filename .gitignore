@@ -1,6 +1,7 @@
-# soft links to transfer-learning-conv-ai at root directory
 /*.py
 !/setup.py
+/.env.*
+/config/
 
 
 # Byte-compiled / optimized / DLL files
