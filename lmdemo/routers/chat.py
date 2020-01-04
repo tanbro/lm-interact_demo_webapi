@@ -145,7 +145,7 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
         # 如果超过 X 轮对话，每隔 Y 轮就推荐咨询师
         n_turn = sum(1 for m in msg_list if m.direction == MessageDirection.incoming)
         if n_turn > 2 and n_turn % 3 == 0:
-            with open('data/counselors.yml') as fp:
+            with open('data/counselors.yml', encoding='utf8') as fp:
                 ds = yaml.load(fp, Loader=yaml.SafeLoader)
             ds = random.sample(ds, k=3)
             logger.debug('ds: %s', ds)
