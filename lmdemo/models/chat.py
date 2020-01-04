@@ -19,11 +19,11 @@ class MessageDirection(str, Enum):
 
 class Counselor(BaseModel):
     name: str = Field(...)
-    tags: List[str]
-    brief: str
-    detail: str
-    url: HttpUrl
-    avatar: HttpUrl
+    tags: List[str] = []
+    brief: str = ''
+    detail: str = ''
+    url: HttpUrl = None
+    avatar: HttpUrl = None
 
 
 class BaseMessage(BaseModel):

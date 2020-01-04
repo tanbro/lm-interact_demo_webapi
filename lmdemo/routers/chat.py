@@ -53,6 +53,7 @@ async def create():
                 .lstrip('>').lstrip()
                 .lstrip('▁').lstrip()
             )
+            # TODO: 固定一个假的 personality
             async with backends_lock:
                 backend, _, lock, *_ = backends[uid]
             async with lock:
