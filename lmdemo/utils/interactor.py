@@ -14,23 +14,23 @@ from fastapi import HTTPException
 Callback = TypeVar('Callback',
                    Callable[..., Any],
                    Callable[..., Awaitable[Any]],
-                   None)
+                   )
 
 
 OnStartedCallback = TypeVar('OnStartedCallback',
                             Callable[[], None],
                             Callable[[], Awaitable[None]],
-                            None)
+                            )
 
 StartedConditionCallback = TypeVar('StartedConditionCallback',
                                    Callable[[str, str], bool],
                                    Callable[[str, str], Awaitable[bool]],
-                                   None)
+                                   )
 
 OnOutputCallback = TypeVar('OnOutputCallback',
                            Callable[[str, str], None],
                            Callable[[str, str], Awaitable[None]],
-                           None)
+                           )
 
 
 class Interactor:
@@ -38,10 +38,10 @@ class Interactor:
                  proc_program: str,
                  proc_args: Optional[List[str]] = None,
                  proc_cwd: str = '',
-                 started_condition: StartedConditionCallback = None,
-                 on_started: OnStartedCallback = None,
-                 on_output: OnOutputCallback = None,
-                 on_terminated: Callback = None,
+                 started_condition: Optional[StartedConditionCallback] = None,
+                 on_started: Optional[OnStartedCallback] = None,
+                 on_output: Optional[OnOutputCallback] = None,
+                 on_terminated: Optional[Callback] = None,
                  ):
         self._logger = logging.getLogger(self.__class__.__qualname__)
         self._proc_program = proc_program
@@ -50,7 +50,10 @@ class Interactor:
         self._proc = None
         self._proc_started = False
         self._proc_terminated = False
-        self._started_condition = started_condition
+        if started_condition is None:
+            self._started_condition = lambda x, y: True
+        else:
+            self._started_condition = started_condition
         self._on_started = on_started
         self._on_output = on_output
         self._on_terminated = on_terminated
@@ -98,10 +101,10 @@ class Interactor:
             encoding = encoding or getpreferredencoding()
             at_eof = False
             while not at_eof:
-                aws = {
+                aws = [
                     asyncio.ensure_future(self.read_line(stream, name_tag))
                     for name_tag, stream in [('stdout', proc.stdout), ('stderr', proc.stderr)]
-                }
+                ]
                 done, pending = await asyncio.wait(aws, timeout=read_timeout, return_when=asyncio.FIRST_COMPLETED)
                 for task in pending:
                     task.cancel()
