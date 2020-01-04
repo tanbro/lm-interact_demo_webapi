@@ -66,31 +66,35 @@ class Interactor:
     async def startup(self):
         logger = self._logger
         try:
-            self._proc = await asyncio.create_subprocess_exec(
-                self._proc_program,
-                *self._proc_args,
-                cwd=self._proc_cwd,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            logger.info('%s: pending', self._proc)
-            asyncio.ensure_future(self.monitor())
-        except NotImplementedError:
-            warnings.warn(
-                "Current asyncio event loop does not support subprocesses. "
-                "A dummy subprocess will be used. It's ONLY for DEVELOPMENT!",
-            )
-            self._proc = DummySubprocess()
-            self._proc_started = True
-            func = self._on_started
-            if isawaitable(func):
-                await func
-            elif callable(func):
-                ret_val = func()
-                if isawaitable(ret_val):
-                    await ret_val
-        return self._proc
+            try:
+                self._proc = await asyncio.create_subprocess_exec(
+                    self._proc_program,
+                    *self._proc_args,
+                    cwd=self._proc_cwd,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                logger.info('%s: pending', self._proc)
+                asyncio.ensure_future(self.monitor())
+            except NotImplementedError:
+                warnings.warn(
+                    "Current asyncio event loop does not support subprocesses. "
+                    "A dummy subprocess will be used. It's ONLY for DEVELOPMENT!",
+                )
+                self._proc = DummySubprocess()
+                self._proc_started = True
+                func = self._on_started
+                if isawaitable(func):
+                    await func
+                elif callable(func):
+                    ret_val = func()
+                    if isawaitable(ret_val):
+                        await ret_val
+            return self._proc
+        except Exception as err:
+            logger.exception('startup: %s', err)
+            raise
 
     async def read_line(self, stream, tag=None):
         line = await stream.readline()
