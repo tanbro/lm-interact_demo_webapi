@@ -3,6 +3,7 @@ import logging
 import os
 import random
 import warnings
+from inspect import isawaitable
 from locale import getpreferredencoding
 from types import SimpleNamespace
 from typing import (Any, Awaitable, Callable, Coroutine, List, Optional,
@@ -50,15 +51,16 @@ class Interactor:
         self._proc = None
         self._proc_started = False
         self._proc_terminated = False
+        self._started_condition: Optional[StartedConditionCallback] = None
         if started_condition is None:
             self._started_condition = lambda x, y: True
         else:
             self._started_condition = started_condition
-        self._on_started = on_started
-        self._on_output = on_output
-        self._on_terminated = on_terminated
-        self._cb_stdout = None
-        self._cb_stderr = None
+        self._on_started: Optional[OnStartedCallback] = on_started
+        self._on_output: Optional[OnOutputCallback] = on_output
+        self._on_terminated: Optional[Callback] = on_terminated
+        self._cb_stdout: Optional[Callable[[str], None]] = None
+        self._cb_stderr: Optional[Callable[[str], None]] = None
         self._input_lock = asyncio.Lock()
 
     async def startup(self):
@@ -82,11 +84,11 @@ class Interactor:
             self._proc = DummySubprocess()
             self._proc_started = True
             func = self._on_started
-            if asyncio.iscoroutine(func):
+            if isawaitable(func):
                 await func
             elif callable(func):
                 ret_val = func()
-                if asyncio.iscoroutine(ret_val):
+                if isawaitable(ret_val):
                     await ret_val
         return self._proc
 
@@ -119,34 +121,35 @@ class Interactor:
                     if not self._proc_started:
                         func = self._started_condition
                         if callable(func):
-                            started = func(name, line)
-                            if asyncio.iscoroutine(started):
-                                started = await started
-                            self._proc_started = bool(started)
+                            ret_val = func(name, line)
+                            if isawaitable(ret_val):
+                                ret_val = await ret_val
+                            self._proc_started = bool(ret_val)
                         if self._proc_started:
                             logger.info('%s: started', proc)
                             func = self._on_started
-                            if asyncio.iscoroutine(func):
+                            if isawaitable(func):
                                 await func
                             elif callable(func):
                                 ret_val = func()
-                                if asyncio.iscoroutine(ret_val):
+                                if isawaitable(ret_val):
                                     await ret_val
                     # 启动的回调函数
                     if self._proc_started:
+                        func = None
                         if name == 'stdout':
                             func = self._cb_stdout
-                            if func:
-                                func(line)
                         elif name == 'stderr':
                             func = self._cb_stderr
-                            if func:
-                                func(line)
+                        if callable(func):
+                            ret_val = func(line)
+                            if isawaitable(ret_val):
+                                await ret_val
                     # onOutput 无论是否启动成功
                     func = self._on_output
                     if callable(func):
                         ret_val = func(name, line)
-                        if asyncio.iscoroutine(ret_val):
+                        if isawaitable(ret_val):
                             await ret_val
             # end of while
 
@@ -154,11 +157,11 @@ class Interactor:
             logger.warning('%s: terminated(returncode=%s)', proc, proc.returncode)
 
             func = self._on_terminated
-            if asyncio.iscoroutine(func):
+            if isawaitable(func):
                 await func
             elif callable(func):
                 ret_val = func()
-                if asyncio.iscoroutine(ret_val):
+                if isawaitable(ret_val):
                     await ret_val
 
         except Exception as err:
@@ -197,8 +200,8 @@ class Interactor:
                             for task in pending:
                                 task.cancel()
                             raise RuntimeError(
-                                'Following streaming i/o tasks can not be done: %r',
-                                pending
+                                'Following streaming i/o tasks can not be done in %s seconds: %s',
+                                timeout, pending
                             )
                     finally:
                         self._cb_stdout = None
