@@ -1,7 +1,10 @@
 import asyncio.subprocess
 import logging
 import os
+import random
+import warnings
 from locale import getpreferredencoding
+from types import SimpleNamespace
 from typing import (Any, Awaitable, Callable, Coroutine, List, Optional,
                     TypeVar, Union)
 
@@ -57,23 +60,31 @@ class Interactor:
 
     async def startup(self):
         logger = self._logger
-        self._proc = await asyncio.create_subprocess_exec(
-            self._proc_program,
-            *self._proc_args,
-            cwd=self._proc_cwd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        logger.info('%s: pending', self._proc)
-        if not self._started_condition:
+        try:
+            self._proc = await asyncio.create_subprocess_exec(
+                self._proc_program,
+                *self._proc_args,
+                cwd=self._proc_cwd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            logger.info('%s: pending', self._proc)
+            asyncio.ensure_future(self.monitor())
+        except NotImplementedError:
+            warnings.warn(
+                "Current asyncio event loop does not support subprocesses. "
+                "A dummy subprocess will be used. It's ONLY for DEVELOPMENT!",
+            )
+            self._proc = DummySubprocess()
             self._proc_started = True
             func = self._on_started
-            if asyncio.iscoroutinefunction(func):
-                await func()
+            if asyncio.iscoroutine(func):
+                await func
             elif callable(func):
-                func()
-        asyncio.ensure_future(self.monitor())
+                ret_val = func()
+                if asyncio.iscoroutine(ret_val):
+                    await ret_val
         return self._proc
 
     async def read_line(self, stream, tag=None):
@@ -155,6 +166,7 @@ class Interactor:
         proc = self._proc
         logger = self._logger
         lock = self._input_lock
+        result = ''
 
         if not self.started:
             raise HTTPException(
@@ -162,39 +174,46 @@ class Interactor:
         if lock.locked():
             raise HTTPException(status_code=409)
 
-        logger.debug('%s: interact: input: %s', proc, input_text)
-        encoding = encoding or getpreferredencoding()
-        input_data = '{0}{1}'.format(
-            input_text.strip(), os.linesep).encode(encoding)
-
         try:
-            async with lock:
-                output_future = asyncio.get_event_loop().create_future()
-                self._cb_stdout = lambda x: (
-                    output_future.set_result(x.strip())
-                )
-                try:
-                    proc.stdin.write(input_data)
-                    aws = (
-                        proc.stdin.drain(),
-                        output_future
-                    )
-                    _, pending = await asyncio.wait(aws, timeout=timeout)
-                    if pending:
-                        for task in pending:
-                            task.cancel()
-                        raise RuntimeError(
-                            'streaming i/o tasks can not be done: %r', pending)
-                finally:
-                    self._cb_stdout = None
+            logger.debug('%s: interact: input: %s', proc, input_text)
 
-            output_text = output_future.result()
+            async with lock:
+                if isinstance(self._proc, asyncio.subprocess.Process):
+                    encoding = encoding or getpreferredencoding()
+                    input_data = f'{input_text.strip()}{os.linesep}'.encode(encoding)
+                    fut = asyncio.get_event_loop().create_future()
+                    self._cb_stdout = lambda x: fut.set_result(x.strip())
+                    try:
+                        proc.stdin.write(input_data)
+                        aws = [
+                            asyncio.ensure_future(m)
+                            for m in (proc.stdin.drain(), fut)
+                        ]
+                        _, pending = await asyncio.wait(aws, timeout=timeout)
+                        if pending:
+                            for task in pending:
+                                task.cancel()
+                            raise RuntimeError(
+                                'Following streaming i/o tasks can not be done: %r',
+                                pending
+                            )
+                    finally:
+                        self._cb_stdout = None
+                    result = fut.result()
+
+                elif isinstance(self._proc, DummySubprocess):
+                    await asyncio.sleep(1)
+                    result = f'Your input: {input_text.strip()}'
+
+                else:
+                    raise RuntimeError('Un-support asyncio subprocess %r', self._proc)
+
         except Exception as err:
             logger.exception('%s: interact: %s', proc, err)
             raise
 
-        logger.debug('%s: interact: output: %s', proc, output_text)
-        return output_text
+        logger.debug('%s: interact: output: %s', proc, result)
+        return result
 
     def terminate(self):
         self._proc.terminate()
@@ -222,3 +241,19 @@ class Interactor:
     @on_output.setter
     def on_output(self, value):
         self._on_output = value
+
+
+class DummySubprocess:
+    def __init__(self):
+        self._pid = random.choice(range(32768, 65536))
+
+    @property
+    def pid(self):
+        return self._pid
+
+    @property
+    def returncode(self):
+        return 0
+
+    def terminate(self):
+        pass

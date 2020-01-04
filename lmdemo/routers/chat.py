@@ -4,6 +4,7 @@ import os
 import random
 import shlex
 import signal
+import sys
 from datetime import datetime
 from functools import partial
 from time import time
@@ -73,7 +74,6 @@ async def create():
                 pass
 
     try:
-
         async with backends_lock:
             if len(backends) >= MAX_BACKENDS:
                 raise HTTPException(
@@ -99,18 +99,17 @@ async def create():
                 on_terminated=coro_on_terminated(uid),
             )
             lock = asyncio.Lock()
-
             backends[uid] = (backend, inter, lock, [])
 
-        async with lock:
-            try:
-                await inter.startup()
-            except:
+        try:
+            await inter.startup()
+        except:
+            async with backends_lock:
                 del backends[uid]
-                raise
-            else:
-                backend.pid = inter.proc.pid
-                logger.info('Backend create ok: %s', inter.proc)
+            raise
+        else:
+            backend.pid = inter.proc.pid
+            logger.info('Backend create ok: %s', inter.proc)
 
         return backend
     except Exception as err:

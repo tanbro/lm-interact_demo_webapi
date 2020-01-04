@@ -4,14 +4,15 @@ from starlette.middleware.cors import CORSMiddleware
 from .routers import chat, qa
 from .settings import settings
 
+# pylint:disable=invalid-name
 app = FastAPI(
     title="LM Demo",
     description="Language Model Demo WebService"
-)  # pylint:disable=invalid-name
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allow_origins.split(),
+    allow_origins=settings.allow_origins.split(),  # pylint:disable=no-member
     allow_methods=['*'],
     allow_headers=['*'],
 )
