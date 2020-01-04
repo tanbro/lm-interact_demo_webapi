@@ -8,7 +8,7 @@ import sys
 from datetime import datetime
 from functools import partial
 from time import time
-from typing import Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 from uuid import UUID, uuid1
 
 import yaml
@@ -32,7 +32,7 @@ backends_lock = asyncio.Lock()
 
 backends: Dict[
     str,
-    Tuple[ChatBackend, Interactor, asyncio.Lock, List[BaseMessage]]
+    Tuple[ChatBackend, Interactor, asyncio.Lock, List[BaseMessage], Dict[str, Any]]
 ] = {}
 
 
@@ -100,7 +100,7 @@ async def create():
                 on_terminated=coro_on_terminated(uid),
             )
             lock = asyncio.Lock()
-            backends[uid] = (backend, inter, lock, [])
+            backends[uid] = (backend, inter, lock, [], {})
 
         try:
             await inter.startup()
@@ -135,17 +135,31 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
     try:
         async with backends_lock:
             try:
-                _, inter, lock, msg_list, *_ = backends[uid]
+                _, inter, lock, msg_list, state, *_ = backends[uid]
             except KeyError:
                 raise HTTPException(404)
 
         msg.direction = MessageDirection.incoming
-        msg_list.append(msg)
-        out_messages = []
+        msg_list.append(msg)        
 
-        # 如果超过 X 轮对话，每隔 Y 轮就推荐咨询师
-        n_turn = sum(1 for m in msg_list if m.direction == MessageDirection.incoming)
-        if n_turn > 2 and n_turn % 3 == 0:
+        # 如果超过 2 轮对话，每隔 1 轮就推荐咨询师
+        suggest_state = state.get('suggest')
+        if not suggest_state:
+            n_turn = sum(1 for m in msg_list if m.direction == MessageDirection.incoming)
+            if n_turn > 0 and n_turn % 2 == 0:
+                # 进入推荐状态 - 询问
+                with open('data/fallbacks.txt', encoding='utf8') as fp:
+                    ss = [s for s in fp.readlines() if s.strip()]
+                s = random.choice(ss)
+                out_msg = TextMessage(
+                    direction=MessageDirection.outgoing,
+                    message=s,
+                    time=datetime.now(tzlocal())
+                )
+                msg_list.append(out_msg)
+                state['suggest'] = 'prompting'
+                return out_msg
+        elif suggest_state == 'prompting':
             with open('data/counselors.yml', encoding='utf8') as fp:
                 ds = yaml.load(fp, Loader=yaml.SafeLoader)
             ds = random.sample(ds, k=3)
@@ -159,7 +173,9 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
                 ),
                 time=datetime.now(tzlocal())
             )
-            out_messages.append(out_msg)
+            msg_list.append(out_msg)
+            state['suggest'] = 'prompted'
+            return out_msg
 
         # 通过 pipe 调用 model 文本生成
         async with lock:
@@ -170,14 +186,11 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
             message=out_txt,
             time=datetime.now(tzlocal())
         )
-        out_messages.append(out_msg)
+        msg_list.append(out_msg)
+        if suggest_state:
+            state['suggest'] = ''
+        return out_msg
 
-        msg_list.extend(out_messages)
-
-        if len(out_messages) == 1:
-            return out_messages[0]
-        else:
-            return out_messages
     except Exception as err:
         logger.exception('An un-caught error occurred when interact: %s', err)
         raise
