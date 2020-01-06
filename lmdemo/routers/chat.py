@@ -194,11 +194,11 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
         # 通过 pipe 调用 model 文本生成
         async with lock:
             out_txt = await inter.interact(msg.message, timeout=timeout)
+        # 清除 > ▁ 的开头的符号
         out_txt = out_txt.lstrip('>').lstrip().lstrip('▁').lstrip()
-        # 特殊的规定：半角标点转为全角标点，还有就是 ``'▁'`` 换为逗号:
-        out_text = out_text.strip().lstrip('▁').lstrip()
+        # 特殊的规定：半角标点转为全角标点，还有就是 ▁ 换为逗号:
         for old, new in PUNCTUATION_MAP:
-            out_text = out_text.replace(old, new)
+            out_txt = out_txt.replace(old, new)
         out_msg = TextMessage(
             direction=MessageDirection.outgoing,
             message=out_txt,
