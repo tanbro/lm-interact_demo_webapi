@@ -48,12 +48,13 @@ async def create():
 
     async def coro_started_condition(uid, name, line):
         if name.strip().lower() == 'stdout':
-            personality = (
-                line
-                .lstrip('>').lstrip()
-                .lstrip('▁').lstrip()
-            )
-            # TODO: 固定一个假的 personality
+            personality = '您好，我是心理咨询师小媒，有什么可以帮到您？'
+            # 固定一个假的 personality
+            # (
+            #     line
+            #     .lstrip('>').lstrip()
+            #     .lstrip('▁').lstrip()
+            # )
             async with backends_lock:
                 backend, _, lock, *_ = backends[uid]
             async with lock:
@@ -194,6 +195,10 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
         async with lock:
             out_txt = await inter.interact(msg.message, timeout=timeout)
         out_txt = out_txt.lstrip('>').lstrip().lstrip('▁').lstrip()
+        # 特殊的规定：半角标点转为全角标点，还有就是 ``'▁'`` 换为逗号:
+        out_text = out_text.strip().lstrip('▁').lstrip()
+        for old, new in PUNCTUATION_MAP:
+            out_text = out_text.replace(old, new)
         out_msg = TextMessage(
             direction=MessageDirection.outgoing,
             message=out_txt,
@@ -292,3 +297,11 @@ async def trace(uid: UUID, timeout: float = 15):
     gen = streaming(inter, timeout)
     response = StreamingResponse(gen, status_code=206, media_type="text/plain")
     return response
+
+PUNCTUATION_MAP = [
+    (',', '，'),
+    ('!', '！'),
+    ('?', '？'),
+    (':', '：'),
+    ('▁', '，'),
+]
