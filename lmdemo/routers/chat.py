@@ -15,13 +15,15 @@ import yaml
 from dateutil.tz import tzlocal
 from fastapi import APIRouter, HTTPException
 from starlette.responses import Response, StreamingResponse
+from transitions import Machine
 
 from ..models.backend import BackendState
 from ..models.chat import (BaseMessage, ChatBackend, Counselor,
                            MessageDirection, SuggestCounselorMessage,
                            SuggestCounselorMessageBody, TextMessage,
-                           UnionMessageTypes)
+                           UnionMessageTypes, State)
 from ..settings import settings
+from ..statemachines.chat import create_machine
 from ..utils.interactor import Interactor
 
 MAX_BACKENDS = 1
@@ -32,7 +34,7 @@ backends_lock = asyncio.Lock()
 
 backends: Dict[
     str,
-    Tuple[ChatBackend, Interactor, asyncio.Lock, List[BaseMessage], Dict[str, Any]]
+    Tuple[ChatBackend, Interactor, asyncio.Lock, Machine]
 ] = {}
 
 
@@ -48,13 +50,8 @@ async def create():
 
     async def coro_started_condition(uid, name, line):
         if name.strip().lower() == 'stdout':
+            # 固定一个假的 personality:
             personality = '您好，我是心理咨询师小媒，有什么可以帮到您？'
-            # 固定一个假的 personality
-            # (
-            #     line
-            #     .lstrip('>').lstrip()
-            #     .lstrip('▁').lstrip()
-            # )
             async with backends_lock:
                 backend, _, lock, *_ = backends[uid]
             async with lock:
@@ -101,7 +98,8 @@ async def create():
                 on_terminated=coro_on_terminated(uid),
             )
             lock = asyncio.Lock()
-            backends[uid] = (backend, inter, lock, [], {})
+            machine = create_machine(State())
+            backends[uid] = (backend, inter, lock, machine)
 
         try:
             await inter.startup()
@@ -172,6 +170,8 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
         elif suggest_state == 'prompting':
             with open('data/counselors.yml', encoding='utf8') as fp:
                 ds = yaml.load(fp, Loader=yaml.SafeLoader)
+            for i in range(len(ds)):
+                ds[i]['id'] = i
             ds = random.sample(ds, k=2)
             counselors = [Counselor(**d) for d in ds]
             out_msg = SuggestCounselorMessage(

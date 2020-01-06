@@ -18,11 +18,11 @@ class MessageDirection(str, Enum):
 
 
 class Counselor(BaseModel):
+    id: int = Field(...)
     name: str = Field(...)
     tags: List[str] = []
     brief: str = ''
     detail: str = ''
-    url: HttpUrl = None
     avatar: HttpUrl = None
 
 
@@ -50,3 +50,10 @@ class SuggestCounselorMessage(BaseMessage):
 
 
 UnionMessageTypes = Union[TextMessage, SuggestCounselorMessage]
+
+
+class State(object):
+    history: List[BaseMessage] = Field([])
+
+    def is_to_suggest(self):
+        pass

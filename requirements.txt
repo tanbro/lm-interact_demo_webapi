@@ -2,4 +2,5 @@ fastapi
 python-dateutil
 python-dotenv
 PyYAML
+transitions[diagrams]
 uvicorn
