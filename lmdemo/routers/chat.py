@@ -140,13 +140,19 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
                 raise HTTPException(404)
 
         msg.direction = MessageDirection.incoming
-        msg_list.append(msg)        
+        msg_list.append(msg)
 
         # 如果超过 2 轮对话，每隔 1 轮就推荐咨询师
         suggest_state = state.get('suggest')
+        n_turn = sum(1 for m in msg_list if m.direction == MessageDirection.incoming)
         if not suggest_state:
-            n_turn = sum(1 for m in msg_list if m.direction == MessageDirection.incoming)
-            if n_turn > 0 and n_turn % 2 == 0:
+            if (
+                state.get('turn_since_latest_suggest') == 1
+                or (
+                    'turn_since_latest_suggest' not in state
+                    and (n_turn > 0 and n_turn % 2 == 0)
+                )
+            ):
                 # 进入推荐状态 - 询问
                 with open('data/fallbacks.txt', encoding='utf8') as fp:
                     ss = [s for s in fp.readlines() if s.strip()]
@@ -157,25 +163,32 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
                     time=datetime.now(tzlocal())
                 )
                 msg_list.append(out_msg)
-                state['suggest'] = 'prompting'
+                state.update({
+                    'suggest': 'prompting',
+                    'turn_since_latest_suggest': 0
+                })
                 return out_msg
         elif suggest_state == 'prompting':
             with open('data/counselors.yml', encoding='utf8') as fp:
                 ds = yaml.load(fp, Loader=yaml.SafeLoader)
-            ds = random.sample(ds, k=3)
-            logger.debug('ds: %s', ds)
+            ds = random.sample(ds, k=2)
             counselors = [Counselor(**d) for d in ds]
             out_msg = SuggestCounselorMessage(
                 direction=MessageDirection.outgoing,
                 message=SuggestCounselorMessageBody(
-                    text='根据过往的聊天记录，为您智能推荐以下{}位适合的咨询师：'.format(len(counselors)),
+                    text='为您智能推荐以下{}位适合的咨询师：'.format(len(counselors)),
                     counselors=counselors
                 ),
                 time=datetime.now(tzlocal())
             )
             msg_list.append(out_msg)
-            state['suggest'] = 'prompted'
+            state.update({'suggest': 'prompted'})
             return out_msg
+        elif suggest_state == 'prompted':
+            state.update({
+                'turn_since_latest_suggest': state.get('turn_since_latest_suggest', 0) + 1
+            })
+            logger.debug('prompted: state: %s', state)
 
         # 通过 pipe 调用 model 文本生成
         async with lock:
@@ -188,7 +201,7 @@ async def interact(uid: UUID, msg: TextMessage, timeout: float = 15):
         )
         msg_list.append(out_msg)
         if suggest_state:
-            state['suggest'] = ''
+            state.update({'suggest': None})
         return out_msg
 
     except Exception as err:
