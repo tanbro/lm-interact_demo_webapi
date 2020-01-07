@@ -38,22 +38,53 @@ class TextMessage(BaseMessage):
     message: str = Field(..., max_length=1024)
 
 
-class SuggestCounselorMessageBody(BaseModel):
+class SuggestMessageBody(BaseModel):
     text: str
     counselors: List[Counselor] = Field(...)
 
 
-class SuggestCounselorMessage(BaseMessage):
-    type: str = 'suggest_counselor'
+
+class SuggestMessage(BaseMessage):
+    type: str = 'suggest'
+    message: SuggestMessageBody
+
+
+class SuggestResultMessageBody(BaseModel):
+    value: int = Field(...)
+
+class SuggestResultMessage(BaseMessage):
+    type: str = 'suggest.result'
+    message: SuggestResultMessageBody = Field(...)
+    direction: MessageDirection = MessageDirection.incoming
+
+
+class PromptMessageBody(BaseModel):
+    text: str = Field(...)
+    yes_label: str = ''
+    no_label: str = ''
+
+
+class PromptMessage(BaseMessage):
+    type: str = 'prompt'
     direction: MessageDirection = MessageDirection.outgoing
-    message: SuggestCounselorMessageBody
+    message: PromptMessageBody
 
 
-UnionMessageTypes = Union[TextMessage, SuggestCounselorMessage]
+class PromptResultValue(str, Enum):
+    yes = 'yes'
+    no = 'no'
 
 
-class State(object):
-    history: List[BaseMessage] = Field([])
+class PromptResultMessageBody(BaseModel):
+    value: PromptResultValue = Field(...)
 
-    def is_to_suggest(self):
-        pass
+
+class PromptResultMessage(BaseMessage):
+    type: str = 'prompt.result'
+    direction: MessageDirection = MessageDirection.incoming
+    message: PromptResultMessageBody
+
+
+IncomingMessages = Union[TextMessage, SuggestResultMessage, PromptResultMessage]
+OutgoingMessages = Union[TextMessage, SuggestMessage, PromptMessage]
+AllMessages = Union[TextMessage, SuggestMessage, SuggestResultMessage, PromptMessage, PromptResultMessage]

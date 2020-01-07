@@ -18,3 +18,7 @@ app.add_middleware(
 )
 app.include_router(chat.router, prefix='/chat', tags=['chat'])
 app.include_router(qa.router, prefix='/qa', tags=['qa'])
+
+@app.get("/")
+def root():
+    return {"message": "Hello World"}
