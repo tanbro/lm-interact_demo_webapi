@@ -222,7 +222,7 @@ async def interact(uid: UUID, msg: IncomingMessages, timeout: float = 15, statel
                             txt_list = yaml.load(fp, Loader=yaml.SafeLoader)[bo.machine.model.state]
                         txt = random.choice(txt_list)
                         out_msg = PromptMessage(message=PromptBody(
-                            text=txt, yes_label='可以', no_label='不用'
+                            text=txt, yes_label='推荐', no_label='放弃'
                         ))
                     elif bo.machine.model.state == 'suggest.yes':
                         # 展示推荐的咨询老师
