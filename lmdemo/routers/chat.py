@@ -22,10 +22,10 @@ from transitions import Machine
 from ..models.backend import BackendState
 from ..models.chat import (AllMessages, BaseMessage, ChatBackend, Counselor,
                            IncomingMessages, MessageDirection,
-                           OutgoingMessages, PromptMessage, PromptMessageBody,
-                           PromptResultMessage, PromptResultMessageBody,
+                           OutgoingMessages, PromptMessage, PromptBody,
+                           PromptResultMessage, PromptResultBody,
                            PromptResultValue, SuggestMessage,
-                           SuggestMessageBody, TextMessage)
+                           SuggestBody, TextMessage)
 from ..settings import settings
 from ..statemachines.chat import FINALS, StateModel, create_machine
 from ..utils.interactor import Interactor
@@ -221,7 +221,7 @@ async def interact(uid: UUID, msg: IncomingMessages, timeout: float = 15, statel
                         with open(os.path.join('data', 'sentences.yml'), encoding='utf8') as fp:
                             txt_list = yaml.load(fp, Loader=yaml.SafeLoader)[bo.machine.model.state]
                         txt = random.choice(txt_list)
-                        out_msg = PromptMessage(message=PromptMessageBody(
+                        out_msg = PromptMessage(message=PromptBody(
                             text=txt, yes_label='可以', no_label='不用'
                         ))
                     elif bo.machine.model.state == 'suggest.yes':
@@ -229,7 +229,7 @@ async def interact(uid: UUID, msg: IncomingMessages, timeout: float = 15, statel
                         counselors = random.sample(get_counselors(), k=2)
                         out_msg = SuggestMessage(
                             direction=MessageDirection.outgoing,
-                            message=SuggestMessageBody(
+                            message=SuggestBody(
                                 text='为您推荐以下{}位咨询师：'.format(len(counselors)),
                                 counselors=counselors
                             ),

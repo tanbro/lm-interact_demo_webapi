@@ -28,6 +28,8 @@ class Counselor(BaseModel):
 
 class BaseMessage(BaseModel):
     type: str = Field(..., max_length=256)
+    is_input: bool = False
+    is_result: bool = False
     message: Any = Field(...)
     direction: MessageDirection = MessageDirection.incoming
     time: Optional[datetime] = None
@@ -39,36 +41,49 @@ class TextMessage(BaseMessage):
     message: str = Field(..., max_length=1024)
 
 
-class SuggestMessageBody(BaseModel):
+class BaseInputtingMessage(BaseMessage):
+    is_input: bool = True
+    direction: MessageDirection = MessageDirection.outgoing
+
+
+class BaseResultBody(BaseModel):
+    value: Any = None
+
+
+class BaseResultMessage(BaseMessage):
+    is_result: bool = True
+    message: BaseResultBody = Field(...)
+    direction: MessageDirection = MessageDirection.incoming
+
+
+class SuggestBody(BaseModel):
     text: str
     counselors: List[Counselor] = Field(...)
 
 
-
-class SuggestMessage(BaseMessage):
+class SuggestMessage(BaseInputtingMessage):
     type: str = 'suggest'
-    message: SuggestMessageBody
+    message: SuggestBody
 
 
-class SuggestResultMessageBody(BaseModel):
+class SuggestResultBody(BaseResultBody):
     value: int = Field(...)
 
-class SuggestResultMessage(BaseMessage):
+
+class SuggestResultMessage(BaseResultMessage):
     type: str = 'suggest.result'
-    message: SuggestResultMessageBody = Field(...)
-    direction: MessageDirection = MessageDirection.incoming
+    message: SuggestResultBody = Field(...)
 
 
-class PromptMessageBody(BaseModel):
+class PromptBody(BaseResultBody):
     text: str = Field(...)
     yes_label: str = ''
     no_label: str = ''
 
 
-class PromptMessage(BaseMessage):
+class PromptMessage(BaseInputtingMessage):
     type: str = 'prompt'
-    direction: MessageDirection = MessageDirection.outgoing
-    message: PromptMessageBody
+    message: PromptBody = Field(...)
 
 
 class PromptResultValue(str, Enum):
@@ -76,14 +91,13 @@ class PromptResultValue(str, Enum):
     no = 'no'
 
 
-class PromptResultMessageBody(BaseModel):
+class PromptResultBody(BaseModel):
     value: PromptResultValue = Field(...)
 
 
-class PromptResultMessage(BaseMessage):
+class PromptResultMessage(BaseResultMessage):
     type: str = 'prompt.result'
-    direction: MessageDirection = MessageDirection.incoming
-    message: PromptResultMessageBody
+    message: PromptResultBody = Field(...)
 
 
 IncomingMessages = Union[TextMessage, SuggestResultMessage, PromptResultMessage]
