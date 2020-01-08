@@ -194,7 +194,9 @@ async def interact(uid: UUID, msg: IncomingMessages, timeout: float = 15, statel
         async with bo.lock:
             if stateless:
                 # 无状态的交互
+                logger.debug('%s interact stateless', bo.interactor)
                 out_msg = await predict(bo.interactor, msg.message, timeout=timeout)
+                bo.machine.model.history.append(out_msg)
             else:
                 # 按照状态机进行交互
                 old_state = bo.machine.model.state
