@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Any, List, Union
+from typing import Any, List, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel, Field, HttpUrl
@@ -23,14 +23,15 @@ class Counselor(BaseModel):
     tags: List[str] = []
     brief: str = ''
     detail: str = ''
-    avatar: HttpUrl = None
+    avatar: Optional[HttpUrl] = None
 
 
 class BaseMessage(BaseModel):
     type: str = Field(..., max_length=256)
     message: Any = Field(...)
     direction: MessageDirection = MessageDirection.incoming
-    time: datetime = None
+    time: Optional[datetime] = None
+    tags: Optional[List[Any]] = None
 
 
 class TextMessage(BaseMessage):
