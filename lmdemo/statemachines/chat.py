@@ -7,7 +7,6 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import List
 
-from transitions import Machine
 from transitions.extensions import (HierarchicalGraphMachine,
                                     HierarchicalMachine)
 from transitions.extensions.nesting import NestedState
@@ -50,6 +49,7 @@ KWARGS = dict(states=STATES, transitions=TRANSITIONS, initial=INITIAL)
 
 @dataclass
 class StateModel:
+    # pylint:disable=no-self-use
     predict_count: int = 0
     history: List[BaseMessage] = None
 

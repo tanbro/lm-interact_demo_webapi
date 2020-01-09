@@ -6,6 +6,7 @@ verify_ssl = true
 [dev-packages]
 lmdemo = {editable=true, path="."}
 autopep8 = "*"
+pylint = "*"
 ipykernel = "*"
 
 [packages]
