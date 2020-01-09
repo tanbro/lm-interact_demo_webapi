@@ -1,11 +1,11 @@
 """
-状态机定义
+Chat 的状态机
 """
 
 import argparse
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 from transitions.extensions import (HierarchicalGraphMachine,
                                     HierarchicalMachine)
@@ -50,7 +50,7 @@ KWARGS = dict(states=STATES, transitions=TRANSITIONS, initial=INITIAL)
 @dataclass
 class StateModel:
     dialog_count: int = 0
-    history: List[BaseMessage] = None
+    history: Optional[List[BaseMessage]] = None
 
     def __post_init__(self):
         if not self.history:
@@ -60,7 +60,7 @@ class StateModel:
         self.dialog_count += val
 
     def is_dialog_count_gt_zero(self):
-        return self.predict_count > 0
+        return self.dialog_count > 0
 
     def is_yes(self, value):
         # pylint:disable=no-self-use
@@ -72,15 +72,16 @@ def create_machine(model):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='生成状态机图')
-    parser.add_argument('output_files', type=str, nargs='+', help='状态机图的输出文件')
+    parser = argparse.ArgumentParser(prog='CMD', description='输出 chat 的状态机图到文件')
+    parser.add_argument('output_files', type=str, nargs='+', help='输出文件(*.dot, *.svg, *.png, *.jpg)')
     arguments = parser.parse_args()
 
     # draw the diagram
     kwargs = deepcopy(KWARGS)
-    kwargs.update(dict(
-        show_conditions=True, show_state_attributes=True
-    ))
+    kwargs.update({
+        'show_conditions': True,
+        'show_state_attributes': True
+    })
     machine = HierarchicalGraphMachine(**kwargs)
     for file_name in arguments.output_files:
         print(f'save state machine diagram to {file_name}')
