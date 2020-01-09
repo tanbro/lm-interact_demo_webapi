@@ -1,7 +1,7 @@
 dataclasses;python_version<'3.7'
 fastapi
 python-dateutil
-python-dotenv
 PyYAML
 transitions[diagrams]
+python-dotenv
 uvicorn

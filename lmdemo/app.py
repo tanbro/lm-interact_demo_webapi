@@ -7,7 +7,7 @@ from .settings import settings
 # pylint:disable=invalid-name
 app = FastAPI(
     title="LM Demo",
-    description="Language Model Demo WebService"
+    description="Language Model Demo WebService",
 )
 
 app.add_middleware(
