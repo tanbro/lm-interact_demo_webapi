@@ -1,0 +1,22 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+lmdemo = {editable=true, path="."}
+autopep8 = "*"
+pylint = "*"
+ipykernel = "*"
+
+[packages]
+dataclasses = {python_version="<'3.7'"}
+fastapi = "*"
+python-dateutil = "*"
+PyYAML = "*"
+transitions = {extrad="[diagrams]"}
+python-dotenv = "*"
+uvicorn = "*"
+
+[requires]
+python_version = "3.6"
