@@ -30,7 +30,7 @@ FINALS = ['bye', 'booked']
 
 STATES = [
     INITIAL,
-    dict(name='dialog', on_enter='inc_predict_count'),
+    dict(name='dialog', on_enter='inc_dialog_count'),
     dict(name='suggest', children=PROMPT_STATEMACHINE),
     'booked',
     'bye',
@@ -38,7 +38,7 @@ STATES = [
 
 TRANSITIONS = [
     dict(trigger='text', source=INITIAL, dest='dialog'),
-    dict(trigger='text', source='dialog', dest='suggest', conditions=['is_to_suggest']),
+    dict(trigger='text', source='dialog', dest='suggest', conditions=['is_dialog_count_gt_zero']),
     dict(trigger='text', source='dialog', dest='dialog'),
     dict(trigger='', source='suggest.no', dest='bye'),
     dict(trigger='suggest.result', source='suggest.yes', dest='booked'),
@@ -49,24 +49,21 @@ KWARGS = dict(states=STATES, transitions=TRANSITIONS, initial=INITIAL)
 
 @dataclass
 class StateModel:
-    # pylint:disable=no-self-use
-    predict_count: int = 0
+    dialog_count: int = 0
     history: List[BaseMessage] = None
 
     def __post_init__(self):
         if not self.history:
             self.history = []
 
-    def inc_predict_count(self):
-        self.predict_count += 1
+    def inc_dialog_count(self, val=1):
+        self.dialog_count += val
 
-    def is_to_suggest(self):
-        # 如：已经进行了一次ML预测输出，就要推荐咨询师！
-        if self.predict_count > 0:
-            return True
-        return False
+    def is_dialog_count_gt_zero(self):
+        return self.predict_count > 0
 
     def is_yes(self, value):
+        # pylint:disable=no-self-use
         return value.strip().lower() == 'yes'
 
 
