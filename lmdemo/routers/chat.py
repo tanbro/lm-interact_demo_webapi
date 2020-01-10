@@ -152,7 +152,7 @@ PUNCTUATION_MAP = [
 ]
 
 
-async def predict(interactor, txt, timeout=None):
+async def lm_run(interactor, txt, timeout=None):
     txt = txt.strip()
     if not txt:
         raise ValueError('input text can not be empty')
@@ -195,7 +195,7 @@ async def interact(uid: UUID, msg: IncomingMessages, timeout: float = 15, statel
             if stateless:
                 # 无状态的交互
                 logger.debug('%s interact stateless', bo.interactor)
-                out_msg = await predict(bo.interactor, msg.message, timeout=timeout)
+                out_msg = await lm_run(bo.interactor, msg.message, timeout=timeout)
                 bo.machine.model.history.append(out_msg)
             else:
                 # 按照状态机进行交互
@@ -215,22 +215,24 @@ async def interact(uid: UUID, msg: IncomingMessages, timeout: float = 15, statel
                 while not out_msg:
                     if bo.machine.model.state == 'dialog':
                         # 通过 ML 模型进行预测
-                        out_msg = await predict(bo.interactor, msg.message, timeout=timeout)
+                        out_msg = await lm_run(bo.interactor, msg.message, timeout=timeout)
                     elif bo.machine.model.state == 'suggest.ask':
                         # 询问是否要推荐咨询老师，从设置文件读取用于回复的语句
                         with open(os.path.join('data', 'sentences.yml'), encoding='utf8') as fp:
                             txt_list = yaml.load(fp, Loader=yaml.SafeLoader)[bo.machine.model.state]
                         txt = random.choice(txt_list)
-                        out_msg = PromptMessage(message=PromptBody(
-                            text=txt, yes_label='推荐', no_label='放弃'
-                        ))
+                        out_msg = PromptMessage(
+                            message=PromptBody(
+                                text=txt, yes_label='推荐', no_label='放弃'
+                            ),
+                            time=datetime.now(tzlocal())
+                        )
                     elif bo.machine.model.state == 'suggest.yes':
                         # 展示推荐的咨询老师
                         counselors = random.sample(get_counselors(), k=2)
                         out_msg = SuggestMessage(
-                            direction=MessageDirection.outgoing,
                             message=SuggestBody(
-                                text='为您推荐以下{}位咨询师：'.format(len(counselors)),
+                                text=f'为您推荐以下{len(counselors)}位咨询师：',
                                 counselors=counselors
                             ),
                             time=datetime.now(tzlocal())
