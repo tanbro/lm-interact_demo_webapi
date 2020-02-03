@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import PlainTextResponse
 
 from .routers import chat, qa
 from .settings import settings
@@ -16,10 +17,11 @@ app.add_middleware(
     allow_methods=['*'],
     allow_headers=['*'],
 )
+
 app.include_router(chat.router, prefix='/chat', tags=['chat'])
 app.include_router(qa.router, prefix='/qa', tags=['qa'])
 
 
 @app.get('/')
 def root():
-    return {'message': 'Hello World'}
+    return PlainTextResponse('It works!')
