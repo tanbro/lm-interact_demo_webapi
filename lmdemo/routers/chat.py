@@ -4,13 +4,12 @@ import os
 import random
 import shlex
 import signal
-import sys
-from string import Template
 from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
+from string import Template
 from time import time
-from typing import Any, Dict, List, Tuple, Union
+from typing import Dict, List, Union
 from uuid import UUID, uuid1
 
 import yaml
@@ -20,19 +19,15 @@ from starlette.responses import Response, StreamingResponse
 from transitions import Machine
 
 from ..models.backend import BackendState
-from ..models.chat import (AllMessages, BaseMessage, ChatBackend, Counselor,
-                           IncomingMessages, MessageDirection,
-                           OutgoingMessages, PromptMessage, PromptBody,
-                           PromptResultMessage, PromptResultBody,
-                           PromptResultValue, SuggestMessage,
-                           SuggestBody, TextMessage)
+from ..models.chat import (AllMessages, ChatBackend, Counselor, IncomingMessages, MessageDirection,
+                           OutgoingMessages, PromptBody, PromptMessage, SuggestBody, SuggestMessage, TextMessage)
 from ..settings import settings
 from ..statemachines.chat import FINALS, StateModel, create_machine
 from ..utils.interactor import Interactor
 
 MAX_BACKENDS = 1
 
-router = APIRouter()
+router = APIRouter()  # pylint:disable=invalid-name
 
 
 @dataclass
@@ -44,8 +39,8 @@ class BackendData:
     machine: Machine = None
 
 
-backends_lock = asyncio.Lock()
-backends: Dict[str, BackendData] = {}
+backends_lock = asyncio.Lock()  # pylint:disable=invalid-name
+backends: Dict[str, BackendData] = {}  # pylint:disable=invalid-name
 
 
 @router.get('/', response_model=List[ChatBackend])
@@ -58,12 +53,12 @@ async def create():
 
     logger = logging.getLogger(__name__)
 
-    async def coro_started_condition(uid, name, line):
+    async def coro_started_condition(uid, name, line):  # pylint:disable=unused-argument
         if name.strip().lower() == 'stdout':
             # 固定一个假的 personality:
             personality = '您好，我是心理咨询师小媒，有什么可以帮到您？'
             async with backends_lock:
-                bo = backends[uid]
+                bo = backends[uid]  # pylint:disable=invalid-name
             async with bo.lock:
                 bo.backend.personality = personality
             return True
@@ -71,11 +66,11 @@ async def create():
 
     async def coro_on_started(uid):
         async with backends_lock:
-            bo = backends[uid]
+            bo = backends[uid]  # pylint:disable=invalid-name
         async with bo.lock:
             bo.backend.state = BackendState.started
 
-    async def coro_on_terminated(uid):
+    async def coro_on_terminated(uid):  # pylint:disable=unused-argument
         async with backends_lock:
             try:
                 del backends[backend.uid]
@@ -87,9 +82,8 @@ async def create():
             if len(backends) >= MAX_BACKENDS:
                 raise HTTPException(
                     status_code=403,
-                    detail='Max length of backends reached: {}'.format(
-                        MAX_BACKENDS
-                    )
+                    detail='Max length of backends reached: {}'
+                    .format(MAX_BACKENDS)
                 )
 
             # 新建聊天进程
@@ -136,7 +130,7 @@ async def create():
 async def get(uid: UUID):
     async with backends_lock:
         try:
-            bo = backends[uid]
+            bo = backends[uid]  # pylint:disable=invalid-name
         except KeyError:
             raise HTTPException(404)
         else:
@@ -172,8 +166,8 @@ async def lm_run(interactor, txt, timeout=None):
 def get_counselors():
     with open('data/counselors.yml', encoding='utf8') as fp:
         ds = yaml.load(fp, Loader=yaml.SafeLoader)
-    for i in range(len(ds)):
-        ds[i]['id'] = i
+    for i, d in enumerate(ds):
+        d['id'] = i
     return [Counselor(**d) for d in ds]
 
 
@@ -183,13 +177,14 @@ async def interact(uid: UUID, msg: IncomingMessages, timeout: float = 15, statel
     try:
         async with backends_lock:
             try:
-                bo = backends[uid]
+                bo = backends[uid]  # pylint:disable=invalid-name
             except KeyError:
                 raise HTTPException(404)
 
         msg.direction = MessageDirection.incoming
         bo.machine.model.history.append(msg)
         out_msg = None
+        sentences_path = os.path.join('data', 'sentences.yml')
 
         async with bo.lock:
             if stateless:
@@ -242,7 +237,7 @@ async def interact(uid: UUID, msg: IncomingMessages, timeout: float = 15, statel
                         bo.machine.model.trigger('')
                     elif bo.machine.model.state == 'booked':
                         # 选中了一个咨询老师，回复一个确认信息：从设置文件读取用于回复的语句，返回纯文本消息
-                        with open(os.path.join('data', 'sentences.yml'), encoding='utf8') as fp:
+                        with open(sentences_path, encoding='utf8') as fp:
                             txt_list = yaml.load(fp, Loader=yaml.SafeLoader)[bo.machine.model.state]
                         txt = random.choice(txt_list)
                         tpl = Template(txt)
@@ -255,7 +250,7 @@ async def interact(uid: UUID, msg: IncomingMessages, timeout: float = 15, statel
                         )
                     else:
                         # 其它，从设置文件读取用于回复的语句，返回纯文本消息
-                        with open(os.path.join('data', 'sentences.yml'), encoding='utf8') as fp:
+                        with open(sentences_path, encoding='utf8') as fp:
                             txt_list = yaml.load(fp, Loader=yaml.SafeLoader)[bo.machine.model.state]
                         txt = random.choice(txt_list)
                         out_msg = TextMessage(
@@ -283,7 +278,7 @@ async def interact(uid: UUID, msg: IncomingMessages, timeout: float = 15, statel
 async def delete(uid: UUID):
     async with backends_lock:
         try:
-            bo = backends.pop(uid)
+            bo = backends.pop(uid)  # pylint:disable=invalid-name
         except KeyError:
             raise HTTPException(404)
 
@@ -327,7 +322,7 @@ async def trace(uid: UUID, timeout: float = 15):
     """
     async with backends_lock:
         try:
-            bo = backends[uid]
+            bo = backends[uid]  # pylint:disable=invalid-name
         except KeyError:
             raise HTTPException(404)
 
@@ -338,21 +333,21 @@ async def trace(uid: UUID, timeout: float = 15):
 
     async def streaming(interactor, max_alive=15, wait_timeout=1):
         try:
-            ts = time()
+            ts = time()  # pylint:disable=invalid-name
             queue = asyncio.Queue()
             interactor.on_output = lambda k, v: queue.put_nowait((k, v))
             try:
                 while (
-                    time()-ts < max_alive
-                    and not interactor.started
-                    and not interactor.terminated
+                        time()-ts < max_alive
+                        and not interactor.started
+                        and not interactor.terminated
                 ):
                     try:
-                        data = await asyncio.wait_for(queue.get(), timeout=wait_timeout)
+                        res = await asyncio.wait_for(queue.get(), timeout=wait_timeout)
                     except asyncio.TimeoutError:
                         pass
                     else:
-                        name, txt = data
+                        name, txt = res
                         yield '{}:{}{}'.format(name, txt, os.linesep)
             finally:
                 interactor.on_output = None
@@ -364,5 +359,5 @@ async def trace(uid: UUID, timeout: float = 15):
             raise
 
     gen = streaming(bo.interactor, timeout)
-    response = StreamingResponse(gen, status_code=206, media_type="text/plain")
+    response = StreamingResponse(gen, status_code=206, media_type='text/plain')
     return response

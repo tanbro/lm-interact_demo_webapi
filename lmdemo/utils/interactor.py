@@ -5,9 +5,7 @@ import random
 import warnings
 from inspect import isawaitable
 from locale import getpreferredencoding
-from types import SimpleNamespace
-from typing import (Any, Awaitable, Callable, Coroutine, List, Optional,
-                    TypeVar, Union)
+from typing import Any, Awaitable, Callable, List, Optional, TypeVar
 
 from fastapi import HTTPException
 
@@ -204,8 +202,8 @@ class Interactor:
                             for task in pending:
                                 task.cancel()
                             raise RuntimeError(
-                                'Following streaming i/o tasks can not be done in %s seconds: %s',
-                                timeout, pending
+                                'Following streaming i/o tasks can not be done in {} seconds: {}'
+                                .format(timeout, pending)
                             )
                     finally:
                         self._cb_stdout = None
@@ -216,7 +214,7 @@ class Interactor:
                     result = f'Your input: {input_text.strip()}'
 
                 else:
-                    raise RuntimeError('Un-support asyncio subprocess %r', self._proc)
+                    raise RuntimeError('Un-support asyncio subprocess {!r}'.format(self._proc))
 
         except Exception as err:
             logger.exception('%s: interact: %s', proc, err)
@@ -245,7 +243,7 @@ class Interactor:
         return self._proc_terminated
 
     @property
-    def on_output(self, value):
+    def on_output(self):
         return self._on_output
 
     @on_output.setter

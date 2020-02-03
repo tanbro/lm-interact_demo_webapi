@@ -17,14 +17,14 @@ from ..utils.interactor import Interactor
 
 MAX_BACKENDS = 1
 
-router = APIRouter()
+router = APIRouter()  # pylint:disable=invalid-name
 
 backends: Dict[
     str,
     Tuple[Backend, Interactor, asyncio.Lock]
-] = {}
+] = {}  # pylint:disable=invalid-name
 
-backends_lock = asyncio.Lock()
+backends_lock = asyncio.Lock()  # pylint:disable=invalid-name
 
 
 @router.get('/', response_model=List[Backend])
@@ -33,10 +33,10 @@ def list_():
 
 
 @router.post('/', status_code=201, response_model=Backend)
-async def create(wait: float = 0):
+async def create(wait: float = 0):  # pylint:disable=unused-argument
     logger = logging.getLogger(__name__)
 
-    def func_started_cond(output_file: str, output_text: str) -> bool:
+    def func_started_cond(output_file: str, output_text: str) -> bool:  # pylint:disable=unused-argument
         return output_text.strip().lower().startswith('started')
 
     async def coro_on_started(uid):
@@ -60,8 +60,8 @@ async def create(wait: float = 0):
         if len(backends) >= MAX_BACKENDS:
             raise HTTPException(
                 status_code=403,
-                detail='Max length of backends reached: {}'.format(
-                    MAX_BACKENDS)
+                detail='Max length of backends reached: {}'
+                .format(MAX_BACKENDS)
             )
         uid = uuid1()
         backend = Backend(
@@ -107,9 +107,10 @@ async def interact(uid: UUID, item: Question, timeout: float = 15):
     async with lock:
         if backend.state != BackendState.started:
             raise HTTPException(
-                403, 'Invalid backend state "{}"'.format(backend.state))
-        in_txt = '{title}<sep>{text}<sep><sep><|endoftext|>'.format(
-            **item.dict())
+                403, 'Invalid backend state "{}"'
+                .format(backend.state)
+            )
+        in_txt = '{title}<sep>{text}<sep><sep><|endoftext|>'.format(**item.dict())
         out_txt = await interactor.interact(in_txt, timeout=timeout)
         out_txt = out_txt.lstrip('>').lstrip().lstrip('▁').lstrip()
         answer = Answer(text=out_txt)
@@ -135,7 +136,7 @@ async def trace(uid: UUID, timeout: float = 15):
     """
     async with backends_lock:
         try:
-            backend, interactor, lock, *_ = backends[uid]
+            _, interactor, _, *_ = backends[uid]
         except KeyError:
             raise HTTPException(404)
 
@@ -145,27 +146,26 @@ async def trace(uid: UUID, timeout: float = 15):
             raise HTTPException(403, detail='backend process terminated')
 
     async def streaming(inter, max_alive=15, read_timeout=1):
-        ts = time()
+        ts = time()  # pylint:disable=invalid-name
         queue = asyncio.Queue()
 
         inter.on_output = lambda k, v: queue.put_nowait((k, v))
         try:
             while (
-                time()-ts < max_alive
-                and not inter.started
-                and not inter.terminated
+                    time()-ts < max_alive
+                    and not inter.started
+                    and not inter.terminated
             ):
                 try:
-                    data = await asyncio.wait_for(queue.get(), timeout=read_timeout)
+                    res = await asyncio.wait_for(queue.get(), timeout=read_timeout)
                 except asyncio.TimeoutError:
                     pass
                 else:
-                    name, txt = data
+                    name, txt = res
                     yield '{}:{}{}'.format(name, txt, os.linesep)
         finally:
             inter.on_output = None
 
     coro = streaming(interactor, timeout)
-    response = StreamingResponse(
-        coro, status_code=206, media_type="text/plain")
+    response = StreamingResponse(coro, status_code=206, media_type="text/plain")
     return response
