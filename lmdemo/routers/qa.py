@@ -71,7 +71,6 @@ async def create(wait: float = 0):  # pylint:disable=unused-argument
             cwd=settings.qa_cwd
         )
         logger.info('create QA backend: %s', backend)
-
         interactor = Interactor(
             backend.program, shlex.split(backend.args), backend.cwd,
             started_condition=func_started_cond,
@@ -82,7 +81,6 @@ async def create(wait: float = 0):  # pylint:disable=unused-argument
         backends[uid] = (backend, interactor, lock)
         await interactor.startup()
         backend.pid = interactor.proc.pid
-
     return backend
 
 
@@ -103,7 +101,6 @@ async def interact(uid: UUID, item: Question, timeout: float = 15):
             backend, interactor, lock, *_ = backends[uid]
         except KeyError:
             raise HTTPException(404)
-
     async with lock:
         if backend.state != BackendState.started:
             raise HTTPException(
@@ -114,7 +111,6 @@ async def interact(uid: UUID, item: Question, timeout: float = 15):
         out_txt = await interactor.interact(in_txt, timeout=timeout)
         out_txt = out_txt.lstrip('>').lstrip().lstrip('▁').lstrip()
         answer = Answer(text=out_txt)
-
     return answer
 
 
@@ -125,7 +121,6 @@ async def delete(uid: UUID):
             _, interactor, lock, *_ = backends.pop(uid)
         except KeyError:
             raise HTTPException(404)
-
     async with lock:
         interactor.terminate()
 
@@ -139,7 +134,6 @@ async def trace(uid: UUID, timeout: float = 15):
             _, interactor, _, *_ = backends[uid]
         except KeyError:
             raise HTTPException(404)
-
         if interactor.started:
             return Response(status_code=204)
         if interactor.terminated:
@@ -148,7 +142,6 @@ async def trace(uid: UUID, timeout: float = 15):
     async def streaming(inter, max_alive=15, read_timeout=1):
         ts = time()  # pylint:disable=invalid-name
         queue = asyncio.Queue()
-
         inter.on_output = lambda k, v: queue.put_nowait((k, v))
         try:
             while (
@@ -165,7 +158,6 @@ async def trace(uid: UUID, timeout: float = 15):
                     yield '{}:{}{}'.format(name, txt, os.linesep)
         finally:
             inter.on_output = None
-
     coro = streaming(interactor, timeout)
     response = StreamingResponse(coro, status_code=206, media_type="text/plain")
     return response

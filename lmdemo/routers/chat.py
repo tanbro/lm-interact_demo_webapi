@@ -282,7 +282,6 @@ async def delete(uid: UUID):
             bo = backends.pop(uid)  # pylint:disable=invalid-name
         except KeyError:
             raise HTTPException(404)
-
     async with bo.lock:
         bo.interactor.terminate()
 
@@ -296,7 +295,6 @@ async def get_history(uid: UUID):
                 bo = backends[uid]  # pylint:disable=invalid-name
             except KeyError:
                 raise HTTPException(404)
-
         async with bo.lock:
             return bo.machine.model.history
     except Exception as err:
@@ -311,7 +309,6 @@ async def delete_history(uid: UUID):
             bo = backends[uid]  # pylint:disable=invalid-name
         except KeyError:
             raise HTTPException(404)
-
     async with bo.lock:
         await bo.interactor.signal(signal.SIGHUP)
         bo.machine = create_machine(StateModel())
@@ -326,7 +323,6 @@ async def trace(uid: UUID, timeout: float = 15):
             bo = backends[uid]  # pylint:disable=invalid-name
         except KeyError:
             raise HTTPException(404)
-
     if bo.interactor.started:
         return Response(status_code=204)
     if bo.interactor.terminated:
