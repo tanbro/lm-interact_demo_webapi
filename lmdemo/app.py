@@ -6,8 +6,8 @@ from .settings import settings
 
 # pylint:disable=invalid-name
 app = FastAPI(
-    title="LM Demo",
-    description="Language Model Demo WebService",
+    title='LM Demo',
+    description='Language Model Demo WebService',
 )
 
 app.add_middleware(
@@ -19,6 +19,7 @@ app.add_middleware(
 app.include_router(chat.router, prefix='/chat', tags=['chat'])
 app.include_router(qa.router, prefix='/qa', tags=['qa'])
 
-@app.get("/")
+
+@app.get('/')
 def root():
-    return {"message": "Hello World"}
+    return {'message': 'Hello World'}
