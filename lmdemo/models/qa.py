@@ -1,9 +1,4 @@
-from datetime import datetime
-from enum import Enum
-from typing import Any
-from uuid import UUID
-
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field  # pylint:disable=no-name-in-module
 
 
 class Question(BaseModel):

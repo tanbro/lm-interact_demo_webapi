@@ -1,9 +1,8 @@
 from datetime import datetime
 from enum import Enum
 from typing import Any, List, Optional, Union
-from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl  # pylint:disable=no-name-in-module
 
 from .backend import Backend
 

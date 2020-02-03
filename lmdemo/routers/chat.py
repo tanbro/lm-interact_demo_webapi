@@ -165,7 +165,7 @@ async def lm_run(interactor, txt, timeout=None):
 
 def get_counselors():
     with open('data/counselors.yml', encoding='utf8') as fp:
-        ds = yaml.load(fp, Loader=yaml.SafeLoader)
+        ds = yaml.load(fp, Loader=yaml.SafeLoader)  # pylint:disable=invalid-name
     for i, d in enumerate(ds):
         d['id'] = i
     return [Counselor(**d) for d in ds]
@@ -173,6 +173,7 @@ def get_counselors():
 
 @router.post('/{uid}', response_model=Union[OutgoingMessages, List[OutgoingMessages]])
 async def interact(uid: UUID, msg: IncomingMessages, timeout: float = 15, stateless: bool = False):
+    # pylint:disable=too-many-locals,too-many-branches,too-many-statements
     logger = logging.getLogger(__name__)
     try:
         async with backends_lock:
@@ -292,7 +293,7 @@ async def get_history(uid: UUID):
     try:
         async with backends_lock:
             try:
-                bo = backends[uid]
+                bo = backends[uid]  # pylint:disable=invalid-name
             except KeyError:
                 raise HTTPException(404)
 
@@ -307,7 +308,7 @@ async def get_history(uid: UUID):
 async def delete_history(uid: UUID):
     async with backends_lock:
         try:
-            bo = backends[uid]
+            bo = backends[uid]  # pylint:disable=invalid-name
         except KeyError:
             raise HTTPException(404)
 
